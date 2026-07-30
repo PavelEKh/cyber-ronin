@@ -2848,18 +2848,42 @@ const Scene = (() => {
     frameSlow = gap > 40 ? frameSlow + gap : 0;
     if (frameSlow > 1200) {
       frameSlow = 0;
-      // the degradation ladder, one rung per slow-second: first the bloom (the
-      // only post pass with a real price), then the render scale, step by step
-      // down to half resolution. Light, silhouettes and grain always stay —
-      // they cost nothing measurable and carry the look.
+      // the degradation ladder, one rung per slow-second: the bloom (the only
+      // post pass with a real price), a render-scale step, then the NEON GLOW
+      // — Firefox blurs canvas shadows in software per draw call, so on it
+      // resolution steps barely help and the glow is the real bill — then the
+      // remaining resolution steps. Silhouettes and grain always stay.
       if (!bloomGaveUp) {
         bloomGaveUp = true;
         fx0.bloom = false;
+      } else if (resStep < 1) {
+        resStep = 1;
+        resize();
+      } else if (!shadowsOff) {
+        killShadows();
       } else if (resStep < RES_STEPS.length - 1) {
         resStep++;
         resize();
       }
     }
+  }
+
+  // The glow kill switch: one interceptor on the context instead of touching a
+  // hundred call sites. shadowColor without blur draws nothing and costs
+  // nothing, so every neon stroke silently loses its halo and keeps its line.
+  let shadowsOff = false;
+  function killShadows() {
+    shadowsOff = true;
+    Object.defineProperty(ctx, 'shadowBlur', {
+      configurable: true, // restorable by the debug override below
+      get: () => 0,
+      set: () => {},
+    });
+  }
+  function restoreShadows() {
+    if (!shadowsOff) return;
+    shadowsOff = false;
+    delete ctx.shadowBlur; // the prototype accessor takes over again
   }
 
   function drawBloom() {
@@ -4604,7 +4628,12 @@ const Scene = (() => {
     if (!(name in fx0)) return fx0;
     fx0[name] = !!on;
     // a hand overrides the verdict: the ladder climbs back to full quality too
-    if (name === 'bloom') { bloomGaveUp = false; frameSlow = 0; if (resStep) { resStep = 0; resize(); } }
+    if (name === 'bloom') {
+      bloomGaveUp = false;
+      frameSlow = 0;
+      restoreShadows();
+      if (resStep) { resStep = 0; resize(); }
+    }
     return fx0;
   }
 

@@ -84,7 +84,7 @@ const STEP = 1 / 60;
 // ROWS survive). The full version shows in the menu corner.
 const VERSION_MAJOR = 1;
 const VERSION_REPLAY = 0;
-const VERSION_COSMETIC = 6; // 1.0.6: adaptive resolution — slow frames trade pixels before they trade rhythm
+const VERSION_COSMETIC = 7; // 1.0.7: the ladder learns to dim the neon — Firefox pays for glow in software
 const VERSION = `${VERSION_MAJOR}.${VERSION_REPLAY}.${VERSION_COSMETIC}`;
 const REPLAY_EPOCH = `${VERSION_MAJOR}.${VERSION_REPLAY}`;
 
