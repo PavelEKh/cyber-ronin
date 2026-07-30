@@ -1,0 +1,823 @@
+/* Cyber Ronin: neon on black, silhouettes, scanlines. */
+
+:root {
+  --bg: #05040c;
+  --pink: #ff2d78;
+  --cyan: #26d6ff;
+  --gold: #ffb42d;
+  --green: #2dff8f;
+  --text: #d7e6ff;
+  --dim: #6c7a9c;
+  --panel: rgba(10, 8, 24, 0.82);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#scene {
+  position: fixed;
+  inset: 0;
+  display: block;
+  cursor: crosshair;
+  /* a tap is a strike: no scroll, no pinch-zoom, no double-tap-zoom delay */
+  touch-action: none;
+}
+
+/* Scanlines over everything — a cheap CRT vibe */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.14) 0 1px, transparent 1px 3px);
+  z-index: 40;
+}
+
+.hidden { display: none !important; }
+
+/* ============ HUD ============ */
+
+#hud {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 20px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+#hud-armor { display: flex; gap: 5px; min-width: 180px; }
+
+.armor-pip {
+  width: 28px; height: 17px;
+  background: var(--cyan);
+  clip-path: polygon(0 0, 100% 0, 100% 60%, 78% 100%, 0 100%);
+  box-shadow: 0 0 8px var(--cyan);
+  transition: opacity 0.15s, background 0.15s;
+}
+.armor-pip.empty { background: #232a44; box-shadow: none; }
+.armor-pip.last { background: var(--pink); box-shadow: 0 0 10px var(--pink); animation: pip-alarm 0.6s infinite; }
+@keyframes pip-alarm { 50% { opacity: 0.35; } }
+
+/* The pip that just went out. Armor is the only resource in the game and it is
+   spent one unit at a time, so losing one deserves a beat of its own: the plate
+   flares white, cracks along its own cut, and drops out. Without it the loss was
+   a silent swap of one colour for another in the corner of the eye. */
+.armor-pip.chip {
+  animation: pip-chip 0.42s ease-out;
+}
+@keyframes pip-chip {
+  0%   { background: #ffffff; box-shadow: 0 0 22px #ffffff; transform: scale(1.35) translateY(-2px); }
+  35%  { background: var(--pink); box-shadow: 0 0 16px var(--pink); transform: scale(1.1) skewX(-14deg); }
+  70%  { background: #6b2438; box-shadow: none; transform: scale(0.94) translateY(3px) skewX(6deg); }
+  100% { background: #232a44; box-shadow: none; transform: none; }
+}
+
+#hud-combo { text-align: center; line-height: 1; }
+#combo-num {
+  display: block;
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--text);
+  text-shadow: 0 0 14px var(--cyan);
+  transition: transform 0.08s;
+}
+#combo-num.pop { transform: scale(1.25); }
+#combo-num.hot { color: var(--gold); text-shadow: 0 0 18px var(--gold); }
+/* Every tenth link of a streak splits into RGB for a moment — a milestone you
+   feel without reading the number. Fires on tens only: on every hit the counter
+   would shimmer permanently and stop meaning anything. */
+#combo-num.glitch { animation: combo-glitch 0.28s steps(2, end) 2; }
+@keyframes combo-glitch {
+  0%   { text-shadow: 0 0 14px var(--cyan); transform: translateX(0); }
+  25%  { text-shadow: -3px 0 var(--pink), 3px 0 var(--cyan), 0 0 18px var(--cyan); transform: translateX(-2px); }
+  60%  { text-shadow: 3px 0 var(--pink), -3px 0 var(--cyan), 0 0 18px var(--cyan); transform: translateX(2px); }
+  100% { text-shadow: 0 0 14px var(--cyan); transform: translateX(0); }
+}
+#combo-label { display: block; font-size: 11px; letter-spacing: 6px; color: var(--dim); }
+
+/* The "execution protocol" counter: visible only with the implant, lit at 9/10 */
+#hud-exec {
+  margin-top: 6px;
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: var(--dim);
+}
+#hud-exec.ready {
+  color: #ff2d4e;
+  text-shadow: 0 0 10px rgba(255, 45, 78, 0.8);
+  animation: exec-pulse 0.5s infinite;
+}
+@keyframes exec-pulse { 50% { opacity: 0.55; } }
+
+#hud-info { text-align: right; min-width: 180px; }
+#hud-act { font-size: 13px; letter-spacing: 3px; color: var(--dim); }
+#hud-score { font-size: 22px; font-weight: 700; text-shadow: 0 0 10px rgba(38, 214, 255, 0.5); }
+#hud-credits { font-size: 14px; color: var(--gold); text-shadow: 0 0 8px rgba(255, 180, 45, 0.5); }
+
+/* Wave mutator badge: a lit tag so the twisted rule is never a surprise */
+#hud-mut {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--pink);
+  border: 1px solid var(--pink);
+  background: rgba(255, 45, 120, 0.12);
+  box-shadow: 0 0 12px rgba(255, 45, 120, 0.35), inset 0 0 10px rgba(255, 45, 120, 0.15);
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  animation: mut-pulse 1.8s infinite;
+}
+#hud-mut-icon { font-size: 14px; letter-spacing: 0; }
+@keyframes mut-pulse { 50% { opacity: 0.62; } }
+
+/* ============ Act banner ============ */
+
+#act-banner {
+  position: fixed;
+  top: 30%;
+  left: 0; right: 0;
+  text-align: center;
+  z-index: 20;
+  pointer-events: none;
+  animation: banner 2.6s ease forwards;
+}
+#act-banner-kicker { font-size: 14px; letter-spacing: 10px; color: var(--dim); }
+#act-banner-name {
+  font-size: clamp(34px, 6vw, 64px);
+  font-weight: 800;
+  letter-spacing: 8px;
+  text-shadow: 0 0 24px var(--pink), 0 0 60px rgba(255, 45, 120, 0.4);
+}
+/* the subtitle sits on its own plate — dim text straight over bright scenery
+   (the red maglev sun, the market lanterns) was unreadable */
+#act-banner-sub {
+  display: inline-block;
+  font-size: 15px;
+  color: var(--text);
+  letter-spacing: 2px;
+  margin-top: 8px;
+  padding: 4px 14px;
+  background: rgba(5, 4, 12, 0.72);
+  border: 1px solid rgba(38, 214, 255, 0.18);
+  backdrop-filter: blur(2px);
+}
+@keyframes banner {
+  0% { opacity: 0; transform: translateY(18px); }
+  12% { opacity: 1; transform: none; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ============ Screens ============ */
+
+#overlay { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
+
+/* the menu kaleidoscope's dip between locations */
+#menu-fade {
+  position: fixed; inset: 0;
+  z-index: 5;
+  background: var(--bg);
+  opacity: 0;
+  transition: opacity 0.7s ease;
+  pointer-events: none;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* THE overflow trap: centered flex clips overflowing content on BOTH ends
+     and no scroll can reach the top. `safe center` keeps the centering while
+     content fits and degrades to reachable flex-start when it does not; the
+     container itself scrolls as the universal net — no screen may ever hide
+     its buttons again, on any phone, in any language. */
+  justify-content: center;
+  justify-content: safe center;
+  overflow-y: auto;
+  gap: 18px;
+  padding: 30px 16px;
+  background: radial-gradient(ellipse at 50% 40%, rgba(8, 6, 22, 0.55), rgba(4, 3, 12, 0.92));
+  backdrop-filter: blur(2px);
+  pointer-events: auto;
+  animation: screen-in 0.25s ease;
+}
+@keyframes screen-in { from { opacity: 0; } }
+
+/* The menu is a postcard of the road: the veil thins so the location shows
+   through, and the blur goes — the kaleidoscope must stay sharp. Buttons keep
+   their own panels, so legibility survives the thinner veil. */
+#screen-menu {
+  background: radial-gradient(ellipse at 50% 40%, rgba(8, 6, 22, 0.18), rgba(4, 3, 12, 0.72));
+  backdrop-filter: none;
+}
+
+/* The "katana cut" logo: pure text+CSS — localized by swapping the string */
+#game-title {
+  position: relative;
+  font-size: clamp(44px, 9vw, 96px);
+  font-weight: 900;
+  letter-spacing: 10px;
+  color: var(--text);
+  animation: title-flicker 4s infinite;
+}
+.logo-half {
+  display: block;
+  text-shadow:
+    3px 0 rgba(255, 45, 120, 0.8), -3px 0 rgba(38, 214, 255, 0.8),
+    0 0 30px rgba(255, 45, 120, 0.5), 0 0 80px rgba(38, 214, 255, 0.3);
+}
+.logo-top {
+  clip-path: polygon(0 0, 100% 0, 100% 44%, 0 56%);
+  transform: translateX(-5px);
+}
+.logo-bottom {
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(0 56%, 100% 44%, 100% 100%, 0 100%);
+  transform: translateX(5px);
+}
+.logo-slash {
+  position: absolute;
+  left: -7%;
+  right: -7%;
+  top: 50%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #eafcff 12%, #eafcff 88%, transparent);
+  transform: rotate(-0.7deg);
+  box-shadow: 0 0 14px var(--cyan), 0 0 34px rgba(38, 214, 255, 0.5);
+  pointer-events: none;
+}
+@keyframes title-flicker {
+  0%, 91%, 94%, 100% { opacity: 1; }
+  92% { opacity: 0.55; }
+  93% { opacity: 0.85; }
+}
+
+.subtitle { color: var(--dim); letter-spacing: 5px; font-size: 15px; margin-top: -8px; }
+
+.screen-title {
+  font-size: clamp(30px, 5vw, 52px);
+  font-weight: 800;
+  letter-spacing: 7px;
+  text-shadow: 0 0 22px var(--cyan);
+}
+.screen-title.danger { color: #ff5c7a; text-shadow: 0 0 24px var(--pink); }
+.screen-title.gold { color: var(--gold); text-shadow: 0 0 24px var(--gold); }
+.screen-sub { color: var(--dim); letter-spacing: 3px; font-size: 14px; margin-top: -10px; }
+
+.hint { color: var(--dim); font-size: 12px; letter-spacing: 2px; }
+
+/* ============ Pause briefing ============ */
+/* What is happening right now: the Warden's weakness or the wave's mutator. */
+
+#pause-brief {
+  max-width: 560px;
+  padding: 16px 20px;
+  text-align: left;
+  border-left: 3px solid var(--cyan);
+  background: rgba(12, 20, 40, 0.55);
+}
+#pause-brief.mut  { border-left-color: var(--pink); }
+#pause-brief.boss { border-left-color: var(--gold); }
+
+.brief-tag {
+  font-size: 11px;
+  letter-spacing: 4px;
+  color: var(--dim);
+}
+.brief-title {
+  margin-top: 4px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 4px;
+  color: var(--cyan);
+  text-shadow: 0 0 14px rgba(38, 214, 255, 0.5);
+}
+#pause-brief.mut  .brief-title { color: var(--pink); text-shadow: 0 0 14px rgba(255, 45, 120, 0.5); }
+#pause-brief.boss .brief-title { color: var(--gold); text-shadow: 0 0 14px rgba(255, 180, 45, 0.5); }
+
+.brief-text {
+  margin-top: 10px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text);
+}
+.brief-text + .brief-text { margin-top: 7px; }
+.brief-text b { color: var(--cyan); }
+#pause-brief.boss .brief-text b { color: var(--gold); }
+.brief-reward {
+  margin-top: 10px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--gold);
+}
+/* the run used the skip code — it earns nothing */
+.brief-tainted {
+  margin-top: 10px;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #ff5c7a;
+}
+
+@media (max-width: 640px) {
+  #pause-brief { padding: 12px 14px; }
+  .brief-text { font-size: 13px; }
+}
+
+/* ============ Emblem: the cut moon ============ */
+
+.emblem {
+  background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><clipPath id="t"><polygon points="0,0 64,0 64,25 0,33"/></clipPath><clipPath id="b"><polygon points="0,33 64,25 64,64 0,64"/></clipPath></defs><circle cx="34.5" cy="30" r="22" fill="%23a41f33" clip-path="url(%23t)"/><circle cx="29.5" cy="30" r="22" fill="%23a41f33" clip-path="url(%23b)"/><line x1="3" y1="33.8" x2="61" y2="24.9" stroke="%2326d6ff" stroke-width="5" stroke-linecap="round" opacity="0.35"/><line x1="3" y1="33.5" x2="61" y2="25.2" stroke="%23eafcff" stroke-width="2.4" stroke-linecap="round"/></svg>') center/contain no-repeat;
+  filter: drop-shadow(0 0 12px rgba(255, 45, 78, 0.45));
+}
+
+#splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #05040c;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  transition: opacity 0.55s ease;
+}
+#splash.gone { opacity: 0; pointer-events: none; }
+#splash .emblem {
+  width: 112px;
+  height: 112px;
+  animation: emblem-pulse 1.3s ease-in-out infinite;
+}
+#splash-label {
+  color: var(--dim);
+  font-size: 13px;
+  letter-spacing: 7px;
+}
+@keyframes emblem-pulse {
+  50% {
+    transform: scale(1.08);
+    filter: drop-shadow(0 0 24px rgba(38, 214, 255, 0.55));
+  }
+}
+
+#menu-crest {
+  width: 48px;
+  height: 48px;
+  margin-bottom: -4px;
+  animation: emblem-pulse 3.2s ease-in-out infinite;
+}
+
+/* ============ Buttons ============ */
+
+/* stretch: every button takes the widest sibling's width — the column stays even */
+.menu-buttons { display: flex; flex-direction: column; gap: 12px; align-items: stretch; margin-top: 8px; }
+
+.cyber-btn {
+  min-width: 260px;
+  padding: 13px 28px;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--text);
+  background: rgba(16, 14, 36, 0.7);
+  border: 1px solid rgba(38, 214, 255, 0.45);
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s, color 0.15s;
+}
+.cyber-btn:hover {
+  background: rgba(38, 214, 255, 0.14);
+  box-shadow: 0 0 18px rgba(38, 214, 255, 0.35), inset 0 0 12px rgba(38, 214, 255, 0.12);
+}
+.cyber-btn.primary {
+  border-color: var(--pink);
+  color: #ffd9e6;
+  box-shadow: 0 0 14px rgba(255, 45, 120, 0.3);
+}
+.cyber-btn.primary:hover {
+  background: rgba(255, 45, 120, 0.16);
+  box-shadow: 0 0 24px rgba(255, 45, 120, 0.5);
+}
+/* Destructive action: muted until armed, then unmistakably red and pulsing.
+   It must never look like just another button on the shop screen. */
+.cyber-btn.danger {
+  min-width: 220px;
+  padding: 9px 18px;
+  font-size: 13px;
+  letter-spacing: 3px;
+  color: var(--dim);
+  border-color: rgba(255, 92, 122, 0.35);
+}
+.cyber-btn.danger:hover {
+  background: rgba(255, 45, 78, 0.12);
+  box-shadow: 0 0 16px rgba(255, 45, 78, 0.3);
+  color: #ff8da0;
+}
+.cyber-btn.danger.armed {
+  color: #ffdde3;
+  border-color: #ff2d4e;
+  background: rgba(255, 45, 78, 0.18);
+  box-shadow: 0 0 22px rgba(255, 45, 78, 0.55);
+  animation: reset-pulse 0.7s infinite;
+}
+@keyframes reset-pulse { 50% { opacity: 0.62; } }
+
+#reset-box {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+#reset-warn { color: #ff8da0; text-align: center; }
+
+.cyber-btn:disabled { opacity: 0.35; cursor: default; box-shadow: none; }
+.cyber-btn:disabled:hover { background: rgba(16, 14, 36, 0.7); }
+/* endless mode: violet accent to stand apart from a regular run */
+#btn-endless:not(:disabled) {
+  border-color: rgba(185, 139, 255, 0.6);
+  color: #e6d4ff;
+}
+#btn-endless:not(:disabled):hover {
+  background: rgba(185, 139, 255, 0.14);
+  box-shadow: 0 0 18px rgba(185, 139, 255, 0.4), inset 0 0 12px rgba(185, 139, 255, 0.12);
+}
+
+#menu-credits { color: var(--gold); font-size: 16px; letter-spacing: 2px; }
+#menu-stats { color: var(--dim); font-size: 13px; letter-spacing: 1px; text-align: center; line-height: 1.7; }
+
+/* ============ Implant cards ============ */
+
+#choice-cards { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+
+.implant-card {
+  width: 220px;
+  padding: 20px 16px 16px;
+  background: var(--panel);
+  border: 1px solid rgba(38, 214, 255, 0.35);
+  clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
+  cursor: pointer;
+  text-align: center;
+  transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
+}
+.implant-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--pink);
+  box-shadow: 0 0 22px rgba(255, 45, 120, 0.35);
+}
+.implant-card .icon { font-size: 40px; display: block; margin-bottom: 8px; filter: drop-shadow(0 0 8px rgba(38, 214, 255, 0.6)); }
+.implant-card .name { font-weight: 800; letter-spacing: 2px; font-size: 16px; margin-bottom: 6px; }
+.implant-card .desc { color: var(--dim); font-size: 13px; line-height: 1.45; min-height: 38px; }
+.implant-card .owned { color: var(--cyan); font-size: 12px; letter-spacing: 1px; margin-top: 8px; }
+.implant-card .key {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 2px 9px;
+  border: 1px solid var(--dim);
+  color: var(--dim);
+  font-size: 12px;
+}
+
+/* ============ Run stats ============ */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(150px, 220px));
+  gap: 10px 30px;
+  font-size: 15px;
+}
+.stat-grid .k { color: var(--dim); letter-spacing: 1px; }
+.stat-grid .v { text-align: right; font-weight: 700; }
+.stat-grid .v.gold { color: var(--gold); }
+.stat-grid .v.danger { color: #ff5c7a; }
+
+/* the debrief's one piece of advice under the death stats */
+.end-tip {
+  max-width: min(560px, 92vw);
+  margin-top: 14px;
+  padding: 10px 14px;
+  border: 1px solid rgba(38, 214, 255, 0.35);
+  border-left: 3px solid var(--cyan);
+  background: rgba(38, 214, 255, 0.06);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+/* ============ Daily board (online top of the day) ============ */
+
+.daily-board {
+  width: min(420px, 92vw);
+  margin-top: 14px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 180, 45, 0.35);
+  background: rgba(255, 180, 45, 0.05);
+  font-size: 13px;
+  text-align: left;
+}
+.board-title { color: var(--gold); letter-spacing: 2px; font-size: 12px; margin-bottom: 6px; }
+.board-row {
+  display: grid;
+  grid-template-columns: 22px 1fr auto auto 22px;
+  gap: 8px;
+  padding: 2px 0;
+  align-items: baseline;
+}
+.board-play {
+  background: none;
+  border: 1px solid rgba(38, 214, 255, 0.4);
+  color: var(--cyan);
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 0;
+  cursor: pointer;
+}
+.board-play:hover { border-color: var(--cyan); background: rgba(38, 214, 255, 0.12); }
+.board-row .rank { color: var(--dim); }
+.board-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-row .name .tag { display: inline; color: var(--dim); font-size: 10px; margin-left: 4px; }
+.board-row .detail { color: var(--dim); font-size: 11px; }
+.board-row .score { font-weight: 700; text-align: right; }
+.board-row.me { color: var(--cyan); }
+.board-row.me .rank, .board-row.me .detail { color: var(--cyan); }
+.board-empty { color: var(--dim); padding: 4px 0; }
+.board-foot { color: var(--dim); font-size: 11px; margin-top: 6px; letter-spacing: 1px; }
+.board-name { display: flex; gap: 8px; margin-top: 8px; }
+.board-name input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(10, 8, 24, 0.8);
+  border: 1px solid var(--dim);
+  color: var(--text);
+  font: inherit;
+  padding: 4px 8px;
+}
+.board-name input:focus { outline: none; border-color: var(--cyan); }
+.cyber-btn.mini { font-size: 11px; padding: 5px 10px; letter-spacing: 1px; }
+#board-tabs { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 94vw; }
+
+#game-version {
+  position: absolute;
+  bottom: 10px;
+  right: 14px;
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: 1px;
+  opacity: 0.7;
+}
+
+/* the language dropdown lives in the opposite corner, equally quiet */
+#lang-select {
+  position: absolute;
+  bottom: 8px;
+  left: 14px;
+  background: rgba(10, 8, 24, 0.8);
+  border: 1px solid rgba(108, 122, 156, 0.5);
+  color: var(--dim);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+#lang-select:hover, #lang-select:focus { color: var(--text); border-color: var(--cyan); outline: none; }
+
+/* the replay viewer's banner */
+#replay-badge {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  padding: 8px 14px;
+  border: 1px solid var(--pink);
+  background: rgba(10, 8, 24, 0.85);
+  color: var(--pink);
+  font-size: 12px;
+  letter-spacing: 3px;
+  cursor: pointer; /* the badge IS the speed control */
+  animation: replay-pulse 1.6s ease-in-out infinite;
+}
+#replay-badge #replay-badge-note { color: var(--dim); letter-spacing: 1px; }
+@keyframes replay-pulse { 50% { opacity: 0.55; } }
+#replay-exit {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 25;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--pink);
+  background: rgba(10, 8, 24, 0.85);
+  color: var(--pink);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* ============ Meta shop ============ */
+
+#shop-credits { color: var(--gold); font-size: 18px; letter-spacing: 2px; }
+/* eight rows now — the list scrolls like the trophies do */
+#shop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(560px, 94vw);
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.shop-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  background: var(--panel);
+  border: 1px solid rgba(38, 214, 255, 0.25);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+.shop-row .icon { font-size: 28px; }
+.shop-row .body { flex: 1; min-width: 0; }
+.shop-row .name { font-weight: 700; letter-spacing: 1px; }
+.shop-row .desc { color: var(--dim); font-size: 13px; }
+.shop-row .lvl { color: var(--cyan); font-size: 12px; letter-spacing: 2px; white-space: nowrap; }
+.shop-row .buy {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--gold);
+  background: transparent;
+  border: 1px solid rgba(255, 180, 45, 0.5);
+  padding: 8px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.shop-row .buy:hover:not(:disabled) { background: rgba(255, 180, 45, 0.12); box-shadow: 0 0 14px rgba(255, 180, 45, 0.3); }
+.shop-row .buy:disabled { opacity: 0.35; cursor: default; }
+.shop-row .buy.maxed { color: var(--green); border-color: rgba(45, 255, 143, 0.4); }
+
+/* ============ Trophies ============ */
+
+#ach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(560px, 94vw);
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.ach-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 180, 45, 0.35);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+.ach-row .icon { font-size: 26px; filter: drop-shadow(0 0 6px rgba(255, 180, 45, 0.5)); }
+.ach-row .body { flex: 1; min-width: 0; }
+.ach-row .name { font-weight: 700; letter-spacing: 1px; }
+.ach-row .desc { color: var(--dim); font-size: 13px; }
+.ach-row .prog { font-size: 13px; color: var(--gold); white-space: nowrap; letter-spacing: 1px; }
+.ach-row.locked { border-color: rgba(108, 122, 156, 0.25); opacity: 0.55; }
+.ach-row.locked .icon { filter: grayscale(1) brightness(0.6); }
+.ach-row.locked .prog { color: var(--dim); }
+
+/* Journal: the same shape as the trophy list, in the cold colour — trophies are
+   the player's record, the journal is the corporation's paperwork about him.
+   A sealed entry keeps its full height and shows its length in blocks: the page
+   says "there is more of this" without hinting what. */
+#log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(620px, 94vw);
+  max-height: 52vh;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.log-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 11px 16px;
+  background: var(--panel);
+  border: 1px solid rgba(38, 214, 255, 0.3);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  text-align: left;
+}
+.log-row .icon { font-size: 24px; line-height: 1.2; filter: drop-shadow(0 0 6px rgba(38, 214, 255, 0.45)); }
+.log-row .body { flex: 1; min-width: 0; }
+.log-row .name { font-weight: 700; letter-spacing: 1px; font-size: 14px; }
+.log-row .text { color: var(--dim); font-size: 13px; line-height: 1.45; margin-top: 2px; }
+.log-row.locked { border-color: rgba(108, 122, 156, 0.22); opacity: 0.5; }
+.log-row.locked .icon { filter: none; color: var(--dim); }
+.log-row.locked .name { color: var(--dim); font-size: 12px; letter-spacing: 3px; }
+.log-row.locked .text { color: rgba(108, 122, 156, 0.4); letter-spacing: 1px; word-break: break-all; }
+
+/* Unlock toast */
+#toast {
+  position: fixed;
+  top: 110px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 22px;
+  background: var(--panel);
+  border: 1px solid var(--gold);
+  color: var(--text);
+  font-size: 15px;
+  letter-spacing: 1px;
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  box-shadow: 0 0 22px rgba(255, 180, 45, 0.35);
+  z-index: 35;
+  pointer-events: none;
+  animation: toast-in 2.6s ease forwards;
+}
+#toast b { color: var(--gold); }
+@keyframes toast-in {
+  0% { opacity: 0; transform: translateX(-50%) translateY(-12px); }
+  10%, 82% { opacity: 1; transform: translateX(-50%); }
+  100% { opacity: 0; }
+}
+
+/* ============ Help ============ */
+
+#help-body {
+  width: min(640px, 92vw);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.65;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* the page grew past one screen when the daily paragraph landed (and grows
+     further in German) — it scrolls like the trophies list */
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+#help-body b { color: var(--cyan); }
+
+/* ============ Mobile adaptation ============ */
+
+@media (max-width: 640px) {
+  #combo-num { font-size: 32px; }
+  #hud-armor, #hud-info { min-width: 110px; }
+  .implant-card { width: min(86vw, 300px); }
+  .stat-grid { grid-template-columns: 1fr; }
+  /* the fat-finger width is for the big menu buttons; inflating the mini
+     tabs rowed three-wide would shove the boards screen off the edge */
+  .cyber-btn:not(.mini) { min-width: 220px; }
+  /* the corner dwellers join the flow: absolute bottoms of a SCROLLING menu
+     would float over the buttons on a small screen */
+  #lang-select, #game-version { position: static; margin-top: 2px; }
+}
+
+/* ============ Cutscene ============ */
+#cine { position: fixed; inset: 0; pointer-events: none; z-index: 30; }
+.cine-bar { position: absolute; left: 0; width: 100%; height: 0; background: #000; transition: height 0.55s ease; }
+.cine-top { top: 0; }
+.cine-bot { bottom: 0; }
+#cine.on .cine-bar { height: 11vh; }
+#cine-text {
+  position: absolute;
+  bottom: 14vh;
+  width: 100%;
+  text-align: center;
+  font-size: clamp(14px, 1.6vw, 19px);
+  letter-spacing: 0.06em;
+  color: var(--text);
+  text-shadow: 0 0 12px rgba(38, 214, 255, 0.35);
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+#cine.on #cine-text { opacity: 1; }
+body.cinema #hud { opacity: 0; transition: opacity 0.4s; }
