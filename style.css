@@ -576,6 +576,62 @@ body::after {
 }
 .board-name input:focus { outline: none; border-color: var(--cyan); }
 .cyber-btn.mini { font-size: 11px; padding: 5px 10px; letter-spacing: 1px; }
+
+/* ============ The champion's frame (the daily's №1 on the menu) ============ */
+
+#menu-champ {
+  position: relative;
+  width: min(420px, 92vw);
+  margin-top: 16px;
+  padding: 12px 18px 14px;
+  text-align: center;
+  border: 1px solid rgba(255, 180, 45, 0.45);
+  background: linear-gradient(180deg, rgba(255, 180, 45, 0.09), rgba(255, 180, 45, 0.02) 55%, rgba(38, 214, 255, 0.05));
+  animation: champ-glow 3.2s ease-in-out infinite;
+}
+@keyframes champ-glow {
+  0%, 100% { box-shadow: 0 0 16px rgba(255, 180, 45, 0.10), inset 0 0 22px rgba(255, 180, 45, 0.04); }
+  50%      { box-shadow: 0 0 26px rgba(255, 180, 45, 0.22), inset 0 0 30px rgba(255, 180, 45, 0.08); }
+}
+/* corner brackets — the frame's katana notches */
+#menu-champ::before, #menu-champ::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--gold);
+}
+#menu-champ::before { top: -2px; left: -2px; border-right: 0; border-bottom: 0; }
+#menu-champ::after  { bottom: -2px; right: -2px; border-left: 0; border-top: 0; }
+.champ-title { color: var(--gold); font-size: 11px; letter-spacing: 3px; }
+.champ-name {
+  margin-top: 6px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.champ-score {
+  color: var(--gold);
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-shadow: 0 0 16px rgba(255, 180, 45, 0.55);
+}
+.champ-detail { color: var(--dim); font-size: 11px; letter-spacing: 1px; margin-top: 2px; }
+.champ-empty { color: var(--dim); font-size: 13px; margin-top: 6px; }
+.champ-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+/* when the crown is yours the frame answers in cyan and stops beckoning */
+#menu-champ.me {
+  border-color: rgba(38, 214, 255, 0.45);
+  animation: none;
+  box-shadow: 0 0 18px rgba(38, 214, 255, 0.14), inset 0 0 24px rgba(38, 214, 255, 0.05);
+}
+#menu-champ.me::before, #menu-champ.me::after { border-color: var(--cyan); }
+#menu-champ.me .champ-title { color: var(--cyan); }
+#menu-champ.me .champ-name { color: var(--cyan); }
 #board-tabs { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 94vw; }
 
 #game-version {

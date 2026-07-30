@@ -220,6 +220,8 @@ function renderMenu() {
       'a shared seed, firmware offline — the board keeps the day’s best');
   // the board button exists only while the online piece is configured
   $('btn-board').classList.toggle('hidden', !Board.enabled());
+  // the champion's frame: today's №1, their tape, and the standing challenge
+  Board.champ($('menu-champ'), todayStr(), () => startGame('daily'));
   // the journal stays off the menu until it has something in it: a fresh player
   // gets the menu exactly as before, and the button appearing after the first
   // death is itself the first beat of the story

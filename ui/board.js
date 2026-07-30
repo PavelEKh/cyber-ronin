@@ -200,6 +200,7 @@ const Board = (() => {
     container.appendChild(div('board-title', boardTitle(res.key) + '…'));
     try {
       await api('POST', res.key, { pid: pid(), name: getName(), ...res.entry });
+      champCache = null; // the menu's frame must catch a possible new leader
       renderRows(container, res.key, await api('GET', res.key), true);
     } catch (e) {
       // offline or the worker is down — the board simply is not there today
@@ -212,7 +213,76 @@ const Board = (() => {
   function submitQuiet(s) {
     const res = runResult(s);
     if (!res) return;
-    api('POST', res.key, { pid: pid(), name: getName(), ...res.entry }).catch(() => {});
+    api('POST', res.key, { pid: pid(), name: getName(), ...res.entry })
+      .then(() => { champCache = null; })
+      .catch(() => {});
+  }
+
+  // ---------- The champion's frame ----------
+  // The daily's №1 on the main menu: the crown, the tape, the challenge.
+  // The board answer is cached for a couple of minutes so menu visits don't
+  // hammer the worker; a submitted result drops the cache, so a new leader
+  // shows the moment you return to the menu.
+  let champCache = null; // { key, data, ts }
+  const CHAMP_TTL = 2 * 60 * 1000;
+
+  const champBtn = (cls, text, fn) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = cls;
+    b.textContent = text;
+    b.addEventListener('click', fn);
+    return b;
+  };
+
+  async function champ(container, key, onChallenge) {
+    if (!enabled()) { container.classList.add('hidden'); return; }
+    let data;
+    try {
+      if (champCache && champCache.key === key && Date.now() - champCache.ts < CHAMP_TTL) {
+        data = champCache.data;
+      } else {
+        data = await api('GET', key);
+        champCache = { key, data, ts: Date.now() };
+      }
+    } catch (e) {
+      // offline or the worker is down — the menu simply has no frame today
+      container.classList.add('hidden');
+      return;
+    }
+    const top = data.top[0];
+    container.textContent = '';
+    container.classList.toggle('me', !!(top && top.me));
+    if (!top) {
+      // an empty throne is itself an invitation
+      container.appendChild(div('champ-title', '👑 ' + L('СИД ДНЯ', 'DAILY SEED')));
+      container.appendChild(div('champ-empty', L('трон пуст — займи его первым', 'the throne is empty — take it first')));
+      const act = div('champ-actions');
+      act.appendChild(champBtn('cyber-btn mini primary', L('⚔ ЗАНЯТЬ ТРОН', '⚔ TAKE THE THRONE'), onChallenge));
+      container.appendChild(act);
+      container.classList.remove('hidden');
+      return;
+    }
+    container.appendChild(div('champ-title', '👑 ' + (top.me
+      ? L('ТЫ ДЕРЖИШЬ СИД ДНЯ', 'YOU HOLD THE DAILY SEED')
+      : L('ЛИДЕР СИДА ДНЯ', 'DAILY SEED CHAMPION'))));
+    container.appendChild(div('champ-name', top.name));
+    container.appendChild(div('champ-score', Game.fmt(top.score)));
+    container.appendChild(div('champ-detail',
+      (top.victory ? '✓ ' + L('полный проход', 'full clear') : `${L('акт', 'act')} ${top.act}`) +
+      ` · ${Game.F('игроков: {n}', 'players: {n}', { n: data.total })}` +
+      (data.rank && !top.me ? ` · ${L('ты', 'you')} #${data.rank}` : '')));
+    const act = div('champ-actions');
+    // the champion's tape rides the same route as a board row's ▶
+    if (top.rep && top.tag) {
+      act.appendChild(champBtn('cyber-btn mini', L('▶ РЕПЛЕЙ', '▶ REPLAY'),
+        e => watchGhost(key, top, e.currentTarget)));
+    }
+    act.appendChild(champBtn('cyber-btn mini primary', top.me
+      ? L('⚔ ЗАКРЕПИТЬ РЕКОРД', '⚔ EXTEND THE LEAD')
+      : L('⚔ ПОБИТЬ РЕКОРД', '⚔ BEAT THE RECORD'), onChallenge));
+    container.appendChild(act);
+    container.classList.remove('hidden');
   }
 
   // Read-only view for the menu's boards screen: no submission and no name
@@ -229,5 +299,5 @@ const Board = (() => {
     }
   }
 
-  return { enabled, runEnd, submitQuiet, view, getName, setName };
+  return { enabled, runEnd, submitQuiet, view, champ, getName, setName };
 })();

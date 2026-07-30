@@ -89,6 +89,17 @@ const ROWS = [
     'tabla no disponible — sin conexión o el servidor calla', 'Liste nicht erreichbar — offline oder der Server schweigt',
     'classement inaccessible — hors ligne ou serveur muet', 'ランキングに接続できない——オフラインかサーバー無応答'],
   ['ронин-', 'ronin-', 'ronin-', 'ronin-', 'ローニン-'],
+  // the champion's frame on the menu
+  ['ЛИДЕР СИДА ДНЯ', 'CAMPEÓN DE LA SEMILLA DEL DÍA', 'CHAMPION DES TAGES-SEEDS',
+    'CHAMPION DE LA GRAINE DU JOUR', 'デイリーの王者'],
+  ['ТЫ ДЕРЖИШЬ СИД ДНЯ', 'TÚ DOMINAS LA SEMILLA DEL DÍA', 'DU HÄLTST DEN TAGES-SEED',
+    'VOUS TENEZ LA GRAINE DU JOUR', 'デイリーの王者は君だ'],
+  ['полный проход', 'recorrido completo', 'kompletter Durchlauf', 'parcours complet', '全アクト踏破'],
+  ['⚔ ПОБИТЬ РЕКОРД', '⚔ BATIR EL RÉCORD', '⚔ REKORD BRECHEN', '⚔ BATTRE LE RECORD', '⚔ 記録に挑む'],
+  ['⚔ ЗАКРЕПИТЬ РЕКОРД', '⚔ AFIANZAR EL RÉCORD', '⚔ REKORD AUSBAUEN', '⚔ CONSOLIDER LE RECORD', '⚔ 記録を伸ばす'],
+  ['трон пуст — займи его первым', 'el trono está vacío — tómalo primero', 'der Thron ist leer — nimm ihn als Erster',
+    'le trône est vide — prenez-le en premier', '王座は空いている——最初に奪え'],
+  ['⚔ ЗАНЯТЬ ТРОН', '⚔ TOMAR EL TRONO', '⚔ THRON BESTEIGEN', '⚔ PRENDRE LE TRÔNE', '⚔ 王座を奪う'],
 
   // ---------- End stats ----------
   ['Бесконечность', 'Infinito', 'Endlos', 'Infini', 'エンドレス'],
