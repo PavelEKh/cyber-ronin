@@ -623,6 +623,22 @@ body::after {
 .champ-detail { color: var(--dim); font-size: 11px; letter-spacing: 1px; margin-top: 2px; }
 .champ-empty { color: var(--dim); font-size: 13px; margin-top: 6px; }
 .champ-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+/* On wide screens the frame steps out of the column and stands at the menu's
+   right hand, level with the buttons — the champion is visible without
+   scrolling. Narrow screens keep it in flow, where the column already knows
+   how to scroll. (#screen-menu has no backdrop-filter and screen-in animates
+   only opacity, so `fixed` here truly means the viewport.) */
+@media (min-width: 1150px) {
+  #menu-champ {
+    position: fixed;
+    left: calc(50% + 200px);
+    top: 50%;
+    transform: translateY(-50%);
+    width: 320px;
+    margin-top: 0;
+  }
+}
+
 /* when the crown is yours the frame answers in cyan and stops beckoning */
 #menu-champ.me {
   border-color: rgba(38, 214, 255, 0.45);
