@@ -29,7 +29,7 @@
 <!-- HUD over the scene during combat -->
 <div id="hud" class="hidden">
   <div id="hud-armor" title="Броня"></div>
-  <div id="hud-combo"><span id="combo-num">0</span><span id="combo-label" data-i18n="combo">КОМБО</span><div id="hud-exec" class="hidden">💀 <span id="exec-count">0/10</span></div></div>
+  <div id="hud-combo"><span id="combo-num">0</span><span id="combo-label" data-i18n="combo">КОМБО</span><span id="combo-mult" class="hidden"></span><div id="hud-exec" class="hidden">💀 <span id="exec-count">0/10</span></div></div>
   <div id="hud-info">
     <div id="hud-act">АКТ I · ВОЛНА 1</div>
     <div id="hud-score">0</div>
@@ -41,6 +41,9 @@
 
 <!-- Unlocked achievement toast -->
 <div id="toast" class="hidden"></div>
+
+<!-- The always-on frame counter; filled by the loop, sits over every layer -->
+<div id="fps"></div>
 
 <!-- The replay viewer's banner: always on screen while a ghost is playing.
      The badge itself is the speed control (tap/click cycles 1×/2×/4×),
@@ -80,6 +83,7 @@
       <button id="btn-ach" class="cyber-btn" data-i18n="btnAch">🏆 ТРОФЕИ</button>
       <button id="btn-log" class="cyber-btn" data-i18n="btnLog">📓 ЖУРНАЛ</button>
       <button id="btn-help" class="cyber-btn" data-i18n="btnHelp">❔ КАК ИГРАТЬ</button>
+      <button id="btn-settings" class="cyber-btn" data-i18n="btnSettings">⚙ НАСТРОЙКИ</button>
     </div>
     <!-- The champion's frame: the daily seed's №1 — watch the tape, take the
          crown. Filled by Board.champ(); hidden while the online piece is off
@@ -163,6 +167,33 @@
       <p><b>Esc</b> — пауза. На паузе показывают разбор текущей обстановки: правило мутатора волны, а во время боя со стражем — как именно его убивать.</p>
     </div>
     <div class="menu-buttons"><button id="btn-help-back" class="cyber-btn" data-i18n="btnBack">НАЗАД</button></div>
+  </div>
+
+  <div id="screen-settings" class="screen hidden">
+    <div class="screen-title" data-i18n="settingsTitle">НАСТРОЙКИ</div>
+    <div id="set-list">
+      <div class="set-row">
+        <span class="set-label" data-i18n="setMusic">МУЗЫКА</span>
+        <input id="set-music" type="range" min="0" max="100" step="5" value="100">
+        <span class="set-val" id="set-music-val">100%</span>
+      </div>
+      <div class="set-row">
+        <span class="set-label" data-i18n="setSfx">ЗВУКИ</span>
+        <input id="set-sfx" type="range" min="0" max="100" step="5" value="100">
+        <span class="set-val" id="set-sfx-val">100%</span>
+      </div>
+      <div class="set-row">
+        <span class="set-label" data-i18n="setGfx">ГРАФИКА</span>
+        <div id="gfx-tabs">
+          <button data-gfx="auto" class="cyber-btn mini" data-i18n="gfxAuto">АВТО</button>
+          <button data-gfx="high" class="cyber-btn mini" data-i18n="gfxHigh">ВЫСОКАЯ</button>
+          <button data-gfx="medium" class="cyber-btn mini" data-i18n="gfxMed">СРЕДНЯЯ</button>
+          <button data-gfx="low" class="cyber-btn mini" data-i18n="gfxLow">НИЗКАЯ</button>
+        </div>
+      </div>
+      <div class="hint" data-i18n="setGfxHint">авто само снижает качество, если кадры проседают</div>
+    </div>
+    <div class="menu-buttons"><button id="btn-set-back" class="cyber-btn" data-i18n="btnBack">НАЗАД</button></div>
   </div>
 
   <div id="screen-board" class="screen hidden">

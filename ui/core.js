@@ -49,6 +49,26 @@ function clearSave() {
   try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* nothing to clear */ }
 }
 
+// ============ Device settings ============
+// Volume and graphics live OUTSIDE the save: wiping progress must not blow up
+// the speakers, and these describe the machine and the room, not the series.
+const SET_KEY = 'cyber-ronin-settings';
+
+const settings = (() => {
+  const s = { musicVol: 1, sfxVol: 1, gfx: 'auto' };
+  try { Object.assign(s, JSON.parse(localStorage.getItem(SET_KEY)) || {}); }
+  catch (e) { /* corrupted — defaults stand */ }
+  const vol = v => Math.min(1, Math.max(0, +v || 0));
+  s.musicVol = vol(s.musicVol);
+  s.sfxVol = vol(s.sfxVol);
+  if (!['auto', 'high', 'medium', 'low'].includes(s.gfx)) s.gfx = 'auto';
+  return s;
+})();
+
+function saveSettings() {
+  try { localStorage.setItem(SET_KEY, JSON.stringify(settings)); } catch (e) { /* private mode */ }
+}
+
 window.addEventListener('beforeunload', saveState);
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveState(); });
 

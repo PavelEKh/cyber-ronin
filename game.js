@@ -103,7 +103,8 @@ const STEP = 1 / 60;
 // rejected loudly instead. Bumping the epoch retires stored replays (board
 // ROWS survive). The full version shows in the menu corner.
 const VERSION_MAJOR = 1;
-const VERSION_REPLAY = 1; // 1.1: the early-press buffer — a swing at an empty zone waits for its target
+const VERSION_REPLAY = 2; // 1.2: the combo multiplier caps at ×3.5 — score favors depth over one unbroken tail
+                          // (1.1: the early-press buffer — a swing at an empty zone waits for its target)
 const VERSION_COSMETIC = 0;
 const VERSION = `${VERSION_MAJOR}.${VERSION_REPLAY}.${VERSION_COSMETIC}`;
 const REPLAY_EPOCH = `${VERSION_MAJOR}.${VERSION_REPLAY}`;
@@ -1950,6 +1951,14 @@ function bumpCombo(r, n = 1) {
   if (r.combo > r.bestCombo) r.bestCombo = r.combo;
 }
 
+// The streak's exchange rate on a kill: every full ten links adds ×0.5,
+// capped at ×3.5 (combo 50). Uncapped, one unbroken tail outweighed any
+// depth and the meta became restarting for a perfect opening; the cap turns
+// the question back into "how far can you go". Combo past 50 keeps its
+// milestones, music tiers and the bestCombo record — just not more score.
+// One source of truth — killEnemy pays by it and the HUD displays it.
+const comboMult = c => Math.min(1 + Math.floor(c / 10) * 0.5, 3.5);
+
 // Nearest living walker in a column, skipping one enemy and an optional extra
 // filter — the crowd scans (chain bolt, kill rollback, strike target) all share
 // this shape.
@@ -2028,7 +2037,7 @@ function killEnemy(s, e) {
   r.waveKills++;
   s.meta.stats.totalKills++;
   const t = ENEMY_TYPES[e.type];
-  r.score += Math.round(t.score * (1 + Math.floor(r.combo / 10) * 0.5));
+  r.score += Math.round(t.score * comboMult(r.combo));
   // a mutated wave pays extra — the risk is rewarded
   r.credits += Math.round(t.credits * creditMult(s) * mutCredit(r));
   // wave rollback: a kill pushes the nearest living enemy in that column back —
@@ -2329,7 +2338,7 @@ const Game = {
   setLang, getLang, registerLang, L, T, F,
   createState, normalizeState, startRun, abandonRun, resetProgress,
   // derived
-  range, cryoMult, stunTime, maxHp, creditMult, chainEvery, berserkOn, qteTimerMult, jamWindupMult, jamProjMult,
+  range, cryoMult, stunTime, maxHp, creditMult, comboMult, chainEvery, berserkOn, qteTimerMult, jamWindupMult, jamProjMult,
   implantCount, metaLvl, speedMult, waveSize, spawnGap,
   // combat
   tick, strike, buildWave, chooseImplant, rollOffers, rerollOffers, threatEta, skipWave, taintRun,

@@ -44,6 +44,8 @@ const Sound = (() => {
     peril: true,       // the music tightens on the last armor pip
     music: true,       // the backing arrangement
     sfx: true,         // impacts — mute to hear the melody bare
+    musicVol: 1,       // the settings screen's sliders, 0..1 scale on each bus
+    sfxVol: 1,
     tier: null,        // null = follow the combo; 0..3 = pin a layer count
     bpm: 120,
   };
@@ -59,8 +61,8 @@ const Sound = (() => {
   function setFlag(k, v) {
     FLAGS[k] = v;
     if (!ctx) return;
-    if (k === 'music') musicBus.gain.value = v ? 0.5 : 0;
-    if (k === 'sfx') sfxBus.gain.value = v ? 1 : 0;
+    if (k === 'music' || k === 'musicVol') musicBus.gain.value = FLAGS.music ? 0.5 * FLAGS.musicVol : 0;
+    if (k === 'sfx' || k === 'sfxVol') sfxBus.gain.value = FLAGS.sfx ? FLAGS.sfxVol : 0;
     if (k === 'bpm' && musicTimer) startMusic(musicAct); // retime the sequencer
     // Rewiring the graph to bypass the limiter would risk a click, so it is
     // flattened to unity ratio instead — audibly the same as not being there.
@@ -101,7 +103,7 @@ const Sound = (() => {
         master.connect(ctx.destination);
       }
       musicBus = ctx.createGain();
-      musicBus.gain.value = FLAGS.music ? 0.5 : 0;
+      musicBus.gain.value = FLAGS.music ? 0.5 * FLAGS.musicVol : 0;
       // The music runs through a sweepable lowpass and a duck gain before the
       // master. Both sit idle (20kHz, unity) until duck() or drop() moves them,
       // so the untouched signal path is unchanged.
@@ -113,7 +115,7 @@ const Sound = (() => {
       musicBus.connect(musicFx).connect(duckGain).connect(master);
       // impacts get their own bus so the debug panel can mute them independently
       sfxBus = ctx.createGain();
-      sfxBus.gain.value = FLAGS.sfx ? 1 : 0;
+      sfxBus.gain.value = FLAGS.sfx ? FLAGS.sfxVol : 0;
       sfxBus.connect(master);
       // A reverb send fed from the impacts only. The music stays dry — drenching
       // the arrangement muddies it, while putting the hits in a room is what
@@ -153,7 +155,9 @@ const Sound = (() => {
   }
 
   // A noise burst through a bandpass filter: blade whistle, glitch, hit rain.
-  function noiseHit(dur, f0, f1, vol, q = 4, when = 0) {
+  // `bus` reroutes it: the menu groove's drums belong to the music slider, not
+  // the impact bus their combat cousins historically ride.
+  function noiseHit(dur, f0, f1, vol, q = 4, when = 0, bus = null) {
     const t0 = ctx.currentTime + when;
     const src = ctx.createBufferSource();
     src.buffer = noiseBuffer(dur);
@@ -165,7 +169,7 @@ const Sound = (() => {
     const g = ctx.createGain();
     g.gain.setValueAtTime(vol, t0);
     g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-    src.connect(filter).connect(g).connect(voiceDest || sfxBus);
+    src.connect(filter).connect(g).connect(bus || voiceDest || sfxBus);
     src.start(t0);
   }
 
@@ -365,7 +369,9 @@ const Sound = (() => {
 
   // Music: anxious cyberpunk — a Phrygian bass (semitone above the tonic),
   // a quiet tritone drone, a nervous arpeggiator and industrial percussion.
-  // Each act has its own root note — the path darkens with progress.
+  // Each act has its own root note — the path darkens with progress — and,
+  // since ACT_TUNES below, its own bass line and arp figures on the shared
+  // form; transitionMusic hands one act's set to the next on a bar line.
   const ACT_ROOTS = { street: 41.2, market: 43.7, train: 49.0, ship: 38.9, server: 36.7, garden: 55.0 }; // E1 F1 G1 Eb1 D1 A1
 
   // Where each act happens, and therefore how it can possibly sound.
@@ -492,6 +498,147 @@ const Sound = (() => {
     [ST.b6, ST.p5, ST.b2 * 2, ST.b7],
     [ST.b2, ST.r,  ST.p5, ST.p4],
   ];
+
+  // ---------- Per-act tunes ----------
+  // Six acts used to share one melody and differ only in key, tempo and room.
+  // Now each act carries its own bass line and its own arp figures — the same
+  // 8-bar A A' B A'' grammar, the same Phrygian palette, the same drums and
+  // pads underneath, so a handover mid-form still parses as one language.
+  // 0 in a bass line is a rest (the original street line never rests; the
+  // ship and the garden breathe). ARPS_B stays a shared alternate bank — the
+  // per-cycle die can always trade an act's figure for the common one.
+  const ACT_TUNES = {
+    // the shipped identity, untouched: the street IS this track
+    street: { bass: BASSLINE, arps: ARPS, tailAlt: TAIL_ALT },
+    // market — a bazaar's quick tongue: b2-b3 ornaments turning on themselves
+    market: { bass: [
+      ST.r, ST.b2, ST.r, ST.b3,  ST.b2, ST.r, ST.b6, ST.p5,
+      ST.r, ST.b2, ST.r, ST.b3,  ST.b2, ST.r, ST.tt, ST.b2,
+      ST.r, ST.b2, ST.r, ST.b3,  ST.b2, ST.r, ST.b6, ST.p5,
+      ST.b3, ST.p4, ST.b3, ST.b2,  ST.b3, ST.b2, ST.r, ST.b2,
+      ST.p5, ST.b6, ST.p5, ST.p4,  ST.p5, ST.b6, ST.b7, ST.b6,
+      ST.p5, ST.p4, ST.b3, ST.p4,  ST.b6, ST.p5, ST.p4, ST.b2,
+      ST.r, ST.b2, ST.r, ST.b3,  ST.b2, ST.r, ST.b6, ST.p5,
+      ST.b3, ST.b2, ST.tt, ST.b2,  ST.r, ST.b7 * 0.5, ST.b2, ST.r,
+    ], arps: [
+      [ST.r, ST.b3, ST.b2, ST.p5],
+      [ST.r, ST.p4, ST.b3, ST.b6],
+      [ST.b2, ST.b3, ST.p4, ST.b6],
+      [ST.r, ST.b3, ST.b2, ST.p5],
+    ] },
+    // train — a motor pedalling the root, whole runs jolting upward in B
+    train: { bass: [
+      ST.r, ST.r, ST.r, ST.b7 * 0.5,  ST.r, ST.r, ST.b2, ST.r,
+      ST.r, ST.r, ST.r, ST.b7 * 0.5,  ST.r, ST.b3, ST.b2, ST.r,
+      ST.r, ST.r, ST.r, ST.b7 * 0.5,  ST.r, ST.r, ST.b2, ST.r,
+      ST.r, ST.b3, ST.p4, ST.p5,  ST.p4, ST.b3, ST.b2, ST.b7 * 0.5,
+      ST.p4, ST.p4, ST.p4, ST.b3,  ST.p5, ST.p5, ST.p5, ST.p4,
+      ST.b6, ST.b6, ST.p5, ST.p4,  ST.b7, ST.b6, ST.p5, ST.p4,
+      ST.r, ST.r, ST.r, ST.b7 * 0.5,  ST.r, ST.r, ST.b2, ST.r,
+      ST.b3, ST.r, ST.b2, ST.b7 * 0.5,  ST.r, ST.tt, ST.b2, ST.r,
+    ], arps: [
+      [ST.r, ST.p5, ST.r, ST.b7],
+      [ST.r, ST.p4, ST.r, ST.b6],
+      [ST.b2, ST.p4, ST.p5, ST.b7],
+      [ST.r, ST.p5, ST.r, ST.b7],
+    ] },
+    // ship — open water: wide swells leaning on the low b6, a breath at the
+    // top of each phrase but the eighths otherwise kept walking — the first
+    // cut rested every other note and the deck drifted instead of rolling
+    ship: { bass: [
+      ST.r, ST.b6 * 0.5, ST.r, ST.b3,  ST.r, ST.b6 * 0.5, ST.b3, ST.b2,
+      ST.r, ST.b6 * 0.5, ST.r, ST.b3,  ST.b2, 0, ST.b7 * 0.5, 0,
+      ST.r, ST.b6 * 0.5, ST.r, ST.b3,  ST.r, ST.b6 * 0.5, ST.b3, ST.b2,
+      ST.r, ST.b3, ST.p4, ST.b3,  ST.b2, ST.b3, ST.b2, 0,
+      ST.p4, 0, ST.b6, ST.p4,  ST.p5, 0, ST.b3, ST.p4,
+      ST.p4, ST.b3, ST.b2, ST.b3,  ST.b6 * 0.5, 0, ST.b7 * 0.5, 0,
+      ST.r, ST.b6 * 0.5, ST.r, ST.b3,  ST.r, ST.b6 * 0.5, ST.b3, ST.b2,
+      ST.b3, ST.b2, ST.r, ST.b6 * 0.5,  ST.tt, 0, ST.b2, 0,
+    ], arps: [
+      [ST.r, ST.b6, ST.b3, ST.p5],
+      [ST.b2, ST.p4, ST.b6, ST.p4],
+      [ST.p4, ST.b6, ST.p5, ST.b3],
+      [ST.r, ST.b6, ST.b3, ST.p5],
+    ] },
+    // server — cold narrow cells circling b2, the tritone glinting off racks
+    server: { bass: [
+      ST.r, ST.b2, ST.r, ST.b2,  ST.r, ST.b3, ST.b2, ST.r,
+      ST.r, ST.b2, ST.r, ST.b2,  ST.tt, ST.r, ST.b2, ST.r,
+      ST.r, ST.b2, ST.r, ST.b2,  ST.r, ST.b3, ST.b2, ST.r,
+      ST.b2, ST.b3, ST.p4, ST.b3,  ST.b2, ST.r, ST.b2, ST.r,
+      ST.p4, ST.tt, ST.p4, ST.b3,  ST.p4, ST.tt, ST.p5, ST.p4,
+      ST.b6, ST.p5, ST.p4, ST.b3,  ST.b2, ST.b3, ST.p4, ST.tt,
+      ST.r, ST.b2, ST.r, ST.b2,  ST.r, ST.b3, ST.b2, ST.r,
+      ST.b3, ST.b2, ST.tt, ST.b2,  ST.r, ST.b2, ST.b7 * 0.5, ST.r,
+    ], arps: [
+      [ST.b2, ST.r, ST.b2, ST.tt],
+      [ST.b2, ST.p4, ST.b2, ST.b3],
+      [ST.p4, ST.tt, ST.b2, ST.b3],
+      [ST.b2, ST.r, ST.b2, ST.tt],
+    ] },
+    // garden — the summit: lines reaching up through p5-b7 and settling back;
+    // the breath lives in two rests at each phrase head, not across the bar —
+    // rested every other beat this high up, the summit stopped moving at all
+    garden: { bass: [
+      ST.r, 0, ST.p5, ST.r,  ST.b3, ST.p4, ST.b6, ST.p5,
+      ST.r, 0, ST.p5, ST.r,  ST.p4, ST.b3, ST.b2, ST.r,
+      ST.r, 0, ST.p5, ST.r,  ST.b3, ST.p4, ST.b6, ST.p5,
+      ST.b3, ST.p4, ST.p5, ST.b6,  ST.p5, ST.p4, ST.b3, ST.b2,
+      ST.p4, ST.p5, ST.b6, ST.p5,  ST.b7, ST.b6, ST.p5, ST.p4,
+      ST.b6, ST.b7, 2, ST.b7,  ST.b6, ST.p5, ST.p4, ST.b3,
+      ST.r, 0, ST.p5, ST.r,  ST.b3, ST.p4, ST.b6, ST.p5,
+      ST.b3, ST.b2, ST.r, ST.b7 * 0.5,  ST.tt, ST.b3, ST.b2, ST.r,
+    ], arps: [
+      [ST.r, ST.p5, ST.b7, ST.p5],
+      [ST.b3, ST.p5, ST.b6, ST.p5],
+      [ST.p4, ST.b6, ST.b7, ST.b6],
+      [ST.r, ST.p5, ST.b7, ST.p5],
+    ] },
+  };
+  // ---------- The menu groove ----------
+  // The menu no longer plays the fight's postcard cut: it runs its own set.
+  // Two cuts of this were too cheerful — off-beat open hats, claps on the
+  // backbeat and an octave-bouncing bass are a party whatever key they are in.
+  // The third cut lost even the steady kick. What survived is a dirge with a
+  // clave: one deep kick a bar with a knock answering on beat three and an
+  // odd-bar stumble, a sub drone, a bass brooding on the root with Phrygian
+  // b2 bites, and a rare rootless stab as the last, distant echo of the
+  // early-90s Sega club sound this started from. Original material
+  // throughout: the nod is in the bass's 3-3-2 feet, never in a quoted melody.
+  // Eight bars of harmony: i i | i i | bVI bII | i i. The first cut of this
+  // lifted through bVII with a ninth on top and read as a party; the game is
+  // not one. The departure now sinks into the Neapolitan bII — the combat
+  // track's own Phrygian signature — so the menu grooves in the same shadow
+  // the fight lives in.
+  const MFORM = ['i', 'i', 'i', 'i', 'b6', 'b2', 'i', 'i'];
+  const MROOT = { i: 1, b6: ST.b6, b2: ST.b2 };
+  // stab voicings per chord, every note diatonic to the key; rootless — the
+  // bass owns the root, the stab owns the color. No maj7 sheen, no ninths:
+  // plain dark triads beside the home i7.
+  const MSTAB = {
+    i:  [ST.b3, ST.p5, ST.b7],        // i7 without its root
+    b6: [ST.b6, 2, ST.b3 * 2],        // bVI triad, first-inversion low
+    b2: [ST.b6, ST.b2 * 2, ST.p4 * 2], // bII triad off its fifth — the bite
+  };
+  // one bar of bass as multipliers on the bar's chord root, 0 = rest.
+  // The feet keep the 3-3-2 clave, the pitch stays DOWN: circling the root
+  // with the b2 sneer, low dips, and a tense fifth where an octave used to
+  // bounce — no lift anywhere now. Home bars alternate A/B; departure bars
+  // take C, whose intervals (root, fifth and its low half) stay diatonic
+  // over bVI and bII alike — b2/b7 colors there would slide out of the key.
+  const MBASS_A = [1, 0, 0, 1, 0, 0, ST.b2, 0, 1, 0, 0, ST.b7 * 0.5, 0, 0, 1, 0];
+  const MBASS_B = [1, 0, 0, ST.p5, 0, 0, ST.b2, 0, 1, 0, 1, 0, ST.b7 * 0.5, 0, ST.b2, 0];
+  const MBASS_C = [1, 0, 0, 1, 0, 0, ST.p5 * 0.5, 0, 1, 0, 0, ST.p5 * 0.5, 0, 0, 1, 0];
+  // the turnaround: a Phrygian run falling home — a descent, not a fanfare
+  const MLEAD = [2, ST.b7, ST.b6, ST.p5, ST.p4, ST.b3, ST.b2, ST.r];
+  // menu pads: the i7 bed, and the low brooding bVI under the departure
+  const MPADS = [
+    [ST.r, ST.b3, ST.b7],
+    [ST.r, ST.b3, ST.b7],
+    [ST.b6 * 0.5, ST.r, ST.b3],
+    [ST.r, ST.b3, ST.b7],
+  ];
+
   // The dice: a stateless hash of the cycle number. The same cycle always rolls
   // the same way (the scheduler may revisit a step), different cycles differ.
   const roll = (cyc, n, mod) => (((cyc * 2654435761 + n * 40503) >>> 13) % mod);
@@ -595,7 +742,26 @@ const Sound = (() => {
   // takes the offset rather than playing immediately: the scheduler runs ahead of
   // the music, so `w` is where this step actually belongs on the timeline.
   function scheduleStep(sAbs, w) {
+    // A queued act handover lands here, on a bar line only: same step, same
+    // instant on the clock, new key, new tune, new pulse. The grid re-anchors
+    // so the tempo change costs no dropped beat, and the lowpass — sent down
+    // when the handover was queued — comes back up on the far side.
+    if (pendingAct && sAbs % 16 === 0) {
+      const oldDur = stepDur();
+      musicAct = pendingAct;
+      pendingAct = null;
+      musicRoot = ACT_ROOTS[musicAct] || 41.2;
+      FLAGS.bpm = ACT_BPM[musicAct] || 120;
+      musicT0 += sAbs * (oldDur - stepDur());
+      setSpace(musicAct);
+      startAmbience(musicAct);
+      const f = musicFx.frequency, tw = ctx.currentTime + Math.max(0, w);
+      f.cancelScheduledValues(tw);
+      f.setValueAtTime(420, tw);
+      f.exponentialRampToValueAtTime(restFreq(), tw + 1.2);
+    }
     const r = musicRoot;
+    const tune = ACT_TUNES[musicAct] || ACT_TUNES.street;
     const tier = musicTier();
     const s = sAbs % CYCLE;      // position inside the 8-bar form
     const cyc = (sAbs / CYCLE) | 0; // which pass through the form
@@ -608,33 +774,55 @@ const Sound = (() => {
     const bellTurn = roll(cyc, 4, 4) === 0;     // a rare belled echo of the turnaround
     const padHigh = roll(cyc, 5, 2) === 1;      // bII pad grows a high shimmer
     const bassDrop = roll(cyc, 9, 3) === 0;     // B's bass walks an octave down — a verse-like pass
-    const arpSet = roll(cyc, 8, 2) === 1 ? ARPS_B : ARPS; // which figure bank this pass runs
-    // The menu plays the postcard cut of the same material: pad, slow bass and
-    // the rare bell — no drums, no arps, whatever the tier says. And in combat
-    // roughly one pass in four BREATHES: the groove strips to the bed and the
-    // form inhales — the single cheapest cure for an arrangement on repeat.
+    const arpSet = roll(cyc, 8, 2) === 1 ? ARPS_B : tune.arps; // the act's own figures, or the shared bank
+    // The menu runs its own club set (see the constants above): the whole
+    // groove ignores the combat tiers, and everything it plays rides musicBus,
+    // so one slider owns all of it. In combat roughly one pass in four
+    // BREATHES: the groove strips to the bed and the form inhales — the
+    // single cheapest cure for an arrangement on repeat.
     const menu = musicAct === 'menu';
     const breathe = !menu && roll(cyc, 6, 4) === 0;
+    const menuSing = roll(cyc, 10, 4) === 0; // one pass in four the turnaround sings
     // --- tier 0: the bed. Always playing, so the track never drops to silence.
     // kick — a muffled hit on every beat (a breathing pass keeps only bar one)
     if (s % 8 === 0 && !menu && (!breathe || s32 === 0)) tone('sine', 120, 42, 0.14, 0.4, w, musicBus);
     // bass in eighths along the Phrygian period; A' may take its other tail —
-    // the menu walks it in half-notes instead, soft and unhurried
+    // the menu swaps all of this for its own groove
     if (menu) {
-      if (s % 8 === 0) {
-        const m = BASSLINE[(s / 2) | 0];
-        tone('sawtooth', r * 2 * m, r * 2 * m, 0.5, 0.07, w, musicBus);
+      const bar = (s / 16) | 0;         // which bar of the eight
+      const chord = MFORM[bar];
+      const cr = MROOT[chord];          // this bar's chord root
+      const st16 = s % 16;
+      // no four-on-the-floor anymore — that was the last thing still dancing.
+      // A dirge pulse instead: one deep kick on the downbeat, the knock
+      // answering on beat three, and on odd bars a soft stumble before the
+      // next bar line — a limp, not a stride
+      if (st16 === 0) tone('sine', 95, 38, 0.14, 0.32, w, musicBus);
+      if (st16 === 8) noiseHit(0.06, 900, 500, 0.05, 2, w, musicBus);
+      if (st16 === 14 && bar % 2 === 1) tone('sine', 90, 36, 0.1, 0.16, w, musicBus);
+      // a barely-there dark tick keeps the sixteenth grid from dying
+      if (st16 % 4 === 2) noiseHit(0.02, 6000, 5000, 0.009, 8, w, musicBus);
+      // the sub drone: a low root held under each section — the warehouse hum
+      if (s32 === 0) tone('sine', r * 2, r * 2, 3.5, 0.05, w, musicBus);
+      // the bass broods on the clave; home bars alternate, departures dig in
+      const bp = (chord === 'i' ? (bar % 2 ? MBASS_B : MBASS_A) : MBASS_C)[st16];
+      if (bp) tone('sawtooth', r * 2 * cr * bp, r * 2 * cr * bp, 0.13, 0.12, w, musicBus);
+      // one smeared rootless stab every OTHER bar, late off-beat — barely a memory
+      if (st16 === 10 && bar % 2 === 1) {
+        for (const [i, iv] of MSTAB[chord].entries())
+          tone('sawtooth', r * 4 * iv, r * 4 * iv, 0.2, 0.024 - i * 0.003, w, musicBus);
       }
-      // the postcard's own rare bell over the turnaround
-      if (bellTurn && s >= CYCLE - 8 && s % 4 === 0) {
-        const bm = BASSLINE[(s / 2) | 0];
-        tone('sine', r * 8 * bm, r * 8 * bm, 0.4, 0.035, w, musicBus);
+      // the turnaround falls home, one pass in four — a habit, not a chorus
+      if (menuSing && s >= CYCLE - 16 && s % 2 === 0) {
+        const ml = MLEAD[(s - (CYCLE - 16)) / 2];
+        tone('triangle', r * 16 * ml, r * 16 * ml, 0.14, 0.042, w, musicBus);
       }
     } else if (s % 2 === 0) {
       const bi = (s / 2) | 0;
-      const m = altTail && bi >= 24 && bi < 32 ? TAIL_ALT[bi - 24] : BASSLINE[bi];
+      // the act's own line; the alt tail only exists where the act wrote one
+      const m = altTail && tune.tailAlt && bi >= 24 && bi < 32 ? tune.tailAlt[bi - 24] : tune.bass[bi];
       const oct = bassDrop && sec === 2 ? 0.5 : 1; // the departure sometimes broods low
-      tone('sawtooth', r * 2 * m * oct, r * 2 * m * oct, 0.15, breathe ? 0.10 : 0.15, w, musicBus);
+      if (m) tone('sawtooth', r * 2 * m * oct, r * 2 * m * oct, 0.15, breathe ? 0.10 : 0.15, w, musicBus);
     }
     // --- tier 1: the groove locks in. Hats in sixteenths, meaner off-beat,
     // a snare on the backbeat and the ghost kick before the second beat.
@@ -650,8 +838,8 @@ const Sound = (() => {
       // ...and once in a while the turnaround rings: the bass tail echoed as
       // small bells an octave up, like the market's own habit caught the track
       if (bellTurn && s >= CYCLE - 8 && s % 2 === 0) {
-        const bm = BASSLINE[(s / 2) | 0];
-        tone('sine', r * 8 * bm, r * 8 * bm, 0.25, 0.045, w, musicBus);
+        const bm = tune.bass[(s / 2) | 0];
+        if (bm) tone('sine', r * 8 * bm, r * 8 * bm, 0.25, 0.045, w, musicBus);
       }
     }
     // --- tier 2: a nervous arpeggiator in each cell's second bar, its figure
@@ -676,11 +864,12 @@ const Sound = (() => {
       tone('sine', 62, 40, 0.16, 0.55, w, musicBus);
       tone('sine', 58, 36, 0.13, 0.4, w + 0.17, musicBus);
     }
-    // pad: one chord per section — i, bVI, bII, i — tension that finally MOVES
-    // (in the menu the pad IS the body, so it comes forward a little)
+    // pad: one chord per section — tension that finally MOVES. The fight keeps
+    // its Phrygian i, bVI, bII, i; the menu holds the groove's own harmony,
+    // and sits back — the drums are the body now.
     if (s32 === 0) {
-      const ch = PADS[sec];
-      const pg = menu ? 1.4 : 1;
+      const ch = menu ? MPADS[sec] : PADS[sec];
+      const pg = 1; // with the hats gone the pad carries the menu's air again
       tone('triangle', r * 8 * ch[0], r * 8 * ch[0], 2.2, 0.05 * pg, w, musicBus);
       tone('triangle', r * 8 * ch[1], r * 8 * ch[1], 2.2, 0.04 * pg, w, musicBus);
       tone('sawtooth', r * 4 * ch[2], r * 4 * ch[2], 2.2, 0.022 * pg, w, musicBus);
@@ -778,13 +967,39 @@ const Sound = (() => {
 
   // Each location keeps its own pulse — one number of variety that costs
   // nothing and stops six acts from blurring into one endless track. The menu
-  // idles far below any fight. The debug BPM slider still overrides between
-  // acts; an act change simply re-tunes it.
-  const ACT_BPM = { street: 122, market: 132, train: 127, ship: 112, server: 134, garden: 106, menu: 92 };
+  // sits at a club idle: slower than any fight, fast enough to be a groove.
+  // The debug BPM slider still overrides between acts; an act change simply
+  // re-tunes it.
+  // ship and garden used to sit at 112/106 — fine while every act shared one
+  // busy bassline, but under their own sparser tunes the double slowdown read
+  // as the game losing its pulse (feedback, 2026-07-31). They stay the two
+  // slowest acts, just no longer by a gap the groove falls into.
+  const ACT_BPM = { street: 122, market: 132, train: 127, ship: 118, server: 134, garden: 116, menu: 96 };
+
+  // ---------- Act handover ----------
+  // Acts used to hard-restart the track: silence, then a new count-in. Now a
+  // running set takes the next act like a DJ takes a record: the handover is
+  // queued, the lowpass dips the track underwater right away, and on the next
+  // bar line scheduleStep swaps key, tune, tempo, room and ambience in one
+  // move and lets the filter back up. Nothing playing (a fresh run, a death
+  // screen behind us) — it simply starts clean.
+  let pendingAct = null;
+
+  function transitionMusic(actId) {
+    if (!ctx || !musicTimer) { startMusic(actId); return; }
+    if (actId === musicAct || actId === pendingAct) return;
+    pendingAct = actId;
+    // under we go — the seam itself arrives with the bar line
+    const t = ctx.currentTime, f = musicFx.frequency;
+    f.cancelScheduledValues(t);
+    f.setValueAtTime(Math.max(200, f.value), t);
+    f.exponentialRampToValueAtTime(420, t + 0.5);
+  }
 
   function startMusic(actId) {
     if (!ctx) return;
     stopMusic();
+    pendingAct = null; // a hard start owns the decks outright
     startAmbience(actId);
     musicRoot = ACT_ROOTS[actId] || 41.2;
     musicAct = actId;
@@ -800,9 +1015,10 @@ const Sound = (() => {
     musicStep = 0;
     musicT0 = ctx.currentTime + 0.05; // a beat of headroom before the first step
     musicTimer = setInterval(() => {
-      const dur = stepDur();
-      while (musicT0 + musicStep * dur < ctx.currentTime + LOOKAHEAD) {
-        scheduleStep(musicStep, musicT0 + musicStep * dur - ctx.currentTime);
+      // stepDur() re-read every pass, not cached per tick: an act handover
+      // inside scheduleStep changes the tempo and re-anchors musicT0 mid-loop
+      while (musicT0 + musicStep * stepDur() < ctx.currentTime + LOOKAHEAD) {
+        scheduleStep(musicStep, musicT0 + musicStep * stepDur() - ctx.currentTime);
         musicStep++;
       }
     }, PUMP);
@@ -814,6 +1030,7 @@ const Sound = (() => {
     autoTier = 0;
     musicT0 = 0;
     peril = false;
+    pendingAct = null; // a queued handover dies with the set it was queued on
   }
 
   // Which set is on the decks — main.js uses this to start the menu music
@@ -864,6 +1081,6 @@ const Sound = (() => {
     return (g - (elapsed % g)) % g;
   }
 
-  return { ensure, sfx, note, setTier, rung, startMusic, stopMusic, playingAct, setMenuAct, pauseMusic,
+  return { ensure, sfx, note, setTier, rung, startMusic, stopMusic, transitionMusic, playingAct, setMenuAct, pauseMusic,
            flags, setFlag, tier: musicTier, gridSec, duckMusic, dropMusic, setPeril, setSpace };
 })();

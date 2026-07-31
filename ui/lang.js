@@ -802,6 +802,22 @@ const ROWS = [
     'Die Elite bricht den Rhythmus: der <b>Fechter</b> — nur im grünen Fenster, der <b>Adapter</b> — zwei Treffer nacheinander von einer Seite, die <b>Zwillinge</b> — beide Tasten zugleich.',
     'L’élite brise le rythme : l’<b>escrimeur</b> — seulement dans la fenêtre verte, l’<b>adaptant</b> — deux coups de suite du même côté, les <b>jumeaux</b> — les deux boutons à la fois.',
     '精鋭はリズムを壊す。<b>剣士</b>は緑の隙のみ、<b>適応者</b>は同側二連撃、<b>双子</b>は両ボタン同時押しだ。'],
+
+  // ---------- Настройки ----------
+  ['⚙ НАСТРОЙКИ', '⚙ AJUSTES', '⚙ EINSTELLUNGEN', '⚙ RÉGLAGES', '⚙ 設定'],
+  ['НАСТРОЙКИ', 'AJUSTES', 'EINSTELLUNGEN', 'RÉGLAGES', '設定'],
+  ['МУЗЫКА', 'MÚSICA', 'MUSIK', 'MUSIQUE', '音楽'],
+  ['ЗВУКИ', 'EFECTOS', 'EFFEKTE', 'EFFETS', '効果音'],
+  ['ГРАФИКА', 'GRÁFICOS', 'GRAFIK', 'GRAPHISMES', 'グラフィック'],
+  ['АВТО', 'AUTO', 'AUTO', 'AUTO', '自動'],
+  ['ВЫСОКАЯ', 'ALTA', 'HOCH', 'ÉLEVÉE', '高'],
+  ['СРЕДНЯЯ', 'MEDIA', 'MITTEL', 'MOYENNE', '中'],
+  ['НИЗКАЯ', 'BAJA', 'NIEDRIG', 'BASSE', '低'],
+  ['авто само снижает качество, если кадры проседают',
+    'auto baja la calidad por sí solo si caen los cuadros',
+    'Auto senkt die Qualität von selbst, wenn die Bildrate einbricht',
+    'auto baisse la qualité de lui-même quand le framerate chute',
+    '自動はフレームが落ちると品質を自ら下げます'],
 ];
 
 const packs = {};

@@ -108,6 +108,21 @@ body::after {
 }
 #combo-label { display: block; font-size: 11px; letter-spacing: 6px; color: var(--dim); }
 
+/* The streak's exchange rate under the counter: appears at ×1.5, steps every
+   ten links. Gold — it talks about payout, same dialect as the credits. */
+#combo-mult {
+  display: block;
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--gold);
+  text-shadow: 0 0 10px rgba(255, 180, 45, 0.55);
+  transition: transform 0.08s;
+}
+#combo-mult.hidden { display: none; }
+#combo-mult.pop { transform: scale(1.3); }
+
 /* The "execution protocol" counter: visible only with the implant, lit at 9/10 */
 #hud-exec {
   margin-top: 6px;
@@ -491,8 +506,9 @@ body::after {
   to   { transform: scale(1);   opacity: 1; }
 }
 
-/* the gamepad cursor: works on any button — cyber, shop buy, board tab */
-button.pad-focus {
+/* the gamepad cursor: works on any button — cyber, shop buy, board tab —
+   and on the settings sliders, where left/right turns into the value */
+button.pad-focus, input.pad-focus {
   outline: 2px solid var(--cyan);
   outline-offset: 2px;
   box-shadow: 0 0 18px rgba(38, 214, 255, 0.4);
@@ -704,6 +720,81 @@ button.pad-focus {
   font-size: 10px;
   letter-spacing: 1px;
   opacity: 0.7;
+}
+
+/* the always-on frame counter: over every layer, quiet enough to forget.
+   bottom-right but ABOVE the version line, so the menu keeps both corners */
+#fps {
+  position: fixed;
+  bottom: 28px;
+  right: 14px;
+  z-index: 60;
+  pointer-events: none;
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: 1px;
+  opacity: 0.7;
+}
+
+/* ============ Settings ============ */
+#set-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: stretch;
+  width: min(440px, 92vw);
+}
+.set-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.set-label {
+  flex: 0 0 92px;
+  text-align: left;
+  color: var(--dim);
+  font-size: 12px;
+  letter-spacing: 2px;
+}
+.set-val {
+  flex: 0 0 44px;
+  text-align: right;
+  color: var(--text);
+  font-size: 13px;
+}
+#gfx-tabs { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+/* the base .cyber-btn min-width would stack the four tiers one per line */
+#gfx-tabs .cyber-btn.mini { min-width: 0; flex: 1 1 auto; }
+#set-list .hint { text-align: left; padding-left: 104px; }
+
+/* the sliders, in the same neon dialect as the buttons */
+input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 4px;
+  background: rgba(108, 122, 156, 0.35);
+  border-radius: 2px;
+  cursor: pointer;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 12px rgba(38, 214, 255, 0.6);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 12px rgba(38, 214, 255, 0.6);
 }
 
 /* the language dropdown lives in the opposite corner, equally quiet */

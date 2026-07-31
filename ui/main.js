@@ -47,6 +47,17 @@ const STR = {
   combo:      ['КОМБО', 'COMBO'],
   loading:    ['ЗАГРУЗКА…', 'LOADING…'],
   btnReset:   ['⌫ СБРОСИТЬ ПРОГРЕСС', '⌫ RESET PROGRESS'],
+  btnSettings: ['⚙ НАСТРОЙКИ', '⚙ SETTINGS'],
+  settingsTitle: ['НАСТРОЙКИ', 'SETTINGS'],
+  setMusic:   ['МУЗЫКА', 'MUSIC'],
+  setSfx:     ['ЗВУКИ', 'SOUND FX'],
+  setGfx:     ['ГРАФИКА', 'GRAPHICS'],
+  gfxAuto:    ['АВТО', 'AUTO'],
+  gfxHigh:    ['ВЫСОКАЯ', 'HIGH'],
+  gfxMed:     ['СРЕДНЯЯ', 'MEDIUM'],
+  gfxLow:     ['НИЗКАЯ', 'LOW'],
+  setGfxHint: ['авто само снижает качество, если кадры проседают',
+               'auto lowers quality by itself when frames drop'],
 };
 
 // ---------- Story ----------
@@ -161,7 +172,7 @@ function applyLang() {
 }
 
 // ---------- Screens ----------
-const SCREENS = ['menu', 'choice', 'dead', 'victory', 'shop', 'help', 'pause', 'ach', 'log', 'board'];
+const SCREENS = ['menu', 'choice', 'dead', 'victory', 'shop', 'help', 'pause', 'ach', 'log', 'board', 'settings'];
 let activeScreen = 'menu';
 let shopReturnTo = 'menu'; // which screen the implant shop was opened from
 
@@ -177,6 +188,7 @@ function showScreen(name) {
   if (name === 'choice') renderChoice();
   if (name === 'pause') renderPauseBrief();
   if (name === 'log') renderLog();
+  if (name === 'settings') renderSettings();
   if (name === 'dead') {
     renderEndStats('dead-stats');
     $('dead-sub').textContent = deathLine();
@@ -645,6 +657,20 @@ function updateHud() {
     el.classList.add('pop');
     // every tenth link of the streak, not every hit — see the keyframes
     if (grew && r.combo && r.combo % 10 === 0) el.classList.add('glitch');
+    // the streak's exchange rate — the half of the combo the HUD never said:
+    // kills pay base × this (Game.comboMult). Shown from the first rung up;
+    // ×1 is not information. Pops only when a new rung is taken.
+    const mult = Game.comboMult(r.combo);
+    const mel = $('combo-mult');
+    mel.classList.toggle('hidden', mult <= 1);
+    if (mult > 1) {
+      mel.textContent = '×' + (mult % 1 ? mult.toFixed(1) : mult);
+      if (grew && r.combo % 10 === 0) {
+        mel.classList.remove('pop');
+        void mel.offsetWidth;
+        mel.classList.add('pop');
+      }
+    }
   }
   // execute counter: hits left until the guaranteed one-shot
   const execKey = r.implants.berserk ? String(r.execHits % Game.EXEC_EVERY) : 'off';
@@ -736,7 +762,7 @@ function startReplayView(rec, label) {
   $('replay-exit').classList.remove('hidden');
   replayBadge();
   Scene.setAct(Game.ACTS[0].id);
-  Sound.startMusic(Game.ACTS[0].id);
+  Sound.transitionMusic(Game.ACTS[0].id);
   showActBanner(1);
 }
 
@@ -778,7 +804,7 @@ function replayFeedStep() {
   if (act && act !== replay.lastAct) {
     replay.lastAct = act;
     Scene.setAct(actData(act).id);
-    Sound.startMusic(actData(act).id);
+    Sound.transitionMusic(actData(act).id);
     showActBanner(act);
     showMutatorBanner(true);
   }
@@ -808,7 +834,8 @@ function startGame(mode) {
   if (mode !== 'daily' && mode !== 'monthly') Game.startRun(state, mode);
   menuBgStop(); // the postcard reel ends — the road itself begins
   Scene.setAct(Game.ACTS[0].id);
-  Sound.startMusic(Game.ACTS[0].id);
+  // the menu set hands the street its decks mid-bar instead of cutting out
+  Sound.transitionMusic(Game.ACTS[0].id);
   hideScreens();
   $('hud').classList.remove('hidden');
   saveState();
@@ -925,7 +952,7 @@ function startActCinema(next) {
     Scene.flash('#05040c', 0.9);
     const id = Game.ACTS[next - 1].id;
     Scene.setAct(id);
-    Sound.startMusic(id);
+    Sound.transitionMusic(id);
     showActBanner(next);
     cineArrived = next;
     if (state.phase === 'choice') showScreen('choice');
@@ -945,7 +972,7 @@ function choose(i) {
       cineArrived = 0; // the cutscene already swapped the scenery and ran the banner
     } else {
       Scene.setAct(actData(r.act).id);
-      Sound.startMusic(actData(r.act).id);
+      Sound.transitionMusic(actData(r.act).id);
       showActBanner(r.act);
     }
   }
@@ -1650,7 +1677,7 @@ function padFocusSet(b) {
 function padNavList() {
   if (!activeScreen) return [];
   // offsetParent filters everything display:none — .hidden buttons, collapsed rows
-  return [...$('screen-' + activeScreen).querySelectorAll('button')]
+  return [...$('screen-' + activeScreen).querySelectorAll('button, input[type="range"]')]
     .filter(b => !b.disabled && b.offsetParent !== null);
 }
 
@@ -1697,6 +1724,13 @@ function handlePadAction(a) {
   }
   if (replay && !paused) { if (a === 'confirm' || a === 'alt') cycleReplaySpeed(); return; }
   if (activeScreen) { // every other screen, the pause included, walks by cursor
+    // a slider under the cursor claims left/right for its value; up/down still walk
+    if (padFocus && padFocus.type === 'range' && (a === 'left' || a === 'right')) {
+      padFocus.value = +padFocus.value + (a === 'left' ? -1 : 1) * (+padFocus.step || 1);
+      padFocus.dispatchEvent(new Event('input'));
+      padFocus.dispatchEvent(new Event('change'));
+      return;
+    }
     if (a === 'up' || a === 'left') padNavMove(-1);
     else if (a === 'down' || a === 'right') padNavMove(1);
     else if (a === 'confirm') padNavConfirm();
@@ -1742,6 +1776,47 @@ $('btn-victory-retry').addEventListener('click', () => startGame());
 $('btn-shop').addEventListener('click', () => { shopReturnTo = 'menu'; showScreen('shop'); });
 $('btn-dead-shop').addEventListener('click', () => { shopReturnTo = 'dead'; showScreen('shop'); });
 $('btn-shop-back').addEventListener('click', () => showScreen(shopReturnTo));
+
+// ---------- Settings ----------
+// The screen edits `settings` (core.js) live: the bus gain answers while the
+// slider still moves, the scene re-renders under the chosen tier next frame.
+// Saved on release, not on every input — a drag is one write, not fifty.
+function renderSettings() {
+  for (const [id, v] of [['set-music', settings.musicVol], ['set-sfx', settings.sfxVol]]) {
+    $(id).value = Math.round(v * 100);
+    $(id + '-val').textContent = Math.round(v * 100) + '%';
+  }
+  for (const b of document.querySelectorAll('#gfx-tabs button'))
+    b.classList.toggle('primary', b.dataset.gfx === settings.gfx);
+}
+
+function bindVolume(id, key) {
+  const el = $(id);
+  el.addEventListener('input', () => {
+    settings[key] = el.value / 100;
+    Sound.setFlag(key, settings[key]);
+    $(id + '-val').textContent = el.value + '%';
+  });
+  // the tick doubles as a probe: on the sfx slider you hear the level you set
+  el.addEventListener('change', () => { saveSettings(); Sound.sfx('ui'); });
+  // the slider must not feed the strike handler underneath it
+  el.addEventListener('pointerdown', e => e.stopPropagation());
+  el.addEventListener('keydown', e => e.stopPropagation());
+}
+bindVolume('set-music', 'musicVol');
+bindVolume('set-sfx', 'sfxVol');
+
+for (const b of document.querySelectorAll('#gfx-tabs button')) {
+  b.addEventListener('click', () => {
+    settings.gfx = b.dataset.gfx;
+    Scene.setQuality(settings.gfx);
+    saveSettings();
+    Sound.sfx('ui');
+    renderSettings();
+  });
+}
+$('btn-settings').addEventListener('click', () => showScreen('settings'));
+$('btn-set-back').addEventListener('click', () => showScreen('menu'));
 
 // ---------- Progress reset ----------
 let resetArmed = false;
@@ -1889,11 +1964,28 @@ function trackZoneEntries() {
 // ---------- Loop ----------
 let lastT = 0;
 
+// The always-on FPS readout. Fed the RAW frame gap, not rawDt: rawDt is
+// clamped at 50ms for the sim's sake, which would floor the readout at 20 —
+// exactly the range where an honest number matters most.
+let fpsAvg = 60, fpsT = 0;
+
+function fpsFrame(gap) {
+  if (!(gap > 0) || gap > 0.5) return; // first frame, or a tab that was asleep
+  fpsAvg += (1 / gap - fpsAvg) * 0.1;
+  fpsT += gap;
+  if (fpsT >= 0.5) { // twice a second: readable, not a blur
+    fpsT = 0;
+    $('fps').textContent = fpsAvg.toFixed(0) + ' FPS';
+  }
+}
+
 function loop(t) {
   requestAnimationFrame(loop);
-  const rawDt = Math.min(0.05, (t - lastT) / 1000 || 0);
+  const frameGap = (t - lastT) / 1000;
+  const rawDt = Math.min(0.05, frameGap || 0);
   lastT = t;
-  Debug.frame(rawDt); // before the pause bail-out: the readout stays live on pause
+  fpsFrame(frameGap); // before the pause bail-out: the counter stays live on pause
+  Debug.frame(rawDt);
   // pad presses must land even on pause and menu screens — START unpauses,
   // A starts a run — so the poll lives above the bail-out
   for (const a of Pad.poll()) handlePadAction(a);
@@ -2008,6 +2100,10 @@ document.addEventListener('pointerdown', wakeMenuMusic);
 document.addEventListener('keydown', wakeMenuMusic);
 
 applyLang();
+// device settings take effect before the first frame is drawn or heard
+Sound.setFlag('musicVol', settings.musicVol);
+Sound.setFlag('sfxVol', settings.sfxVol);
+Scene.setQuality(settings.gfx);
 $('game-version').textContent = 'v' + Game.VERSION;
 showScreen('menu');
 

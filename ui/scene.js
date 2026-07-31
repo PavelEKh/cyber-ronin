@@ -122,15 +122,16 @@ const Scene = (() => {
   // while reflectPass is up, any blur written to the context becomes 0.
   // (save/restore bypasses the setter, but the pass is wrapped in its own
   // save/restore, so no zero ever leaks out of the mirror.)
-  {
-    const desc = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'shadowBlur');
-    if (desc && desc.get && desc.set) {
-      Object.defineProperty(ctx, 'shadowBlur', {
-        get() { return desc.get.call(this); },
-        set(v) { desc.set.call(this, reflectPass ? 0 : v); },
-      });
-    }
+  const shadowDesc = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'shadowBlur');
+  function installReflectGuard() {
+    if (!shadowDesc || !shadowDesc.get || !shadowDesc.set) return;
+    Object.defineProperty(ctx, 'shadowBlur', {
+      configurable: true, // killShadows below replaces this interceptor, restoreShadows puts it back
+      get() { return shadowDesc.get.call(this); },
+      set(v) { shadowDesc.set.call(this, reflectPass ? 0 : v); },
+    });
   }
+  installReflectGuard();
 
   // Act- and size-static gradients, built once and reused. A frame used to
   // allocate a dozen fresh gradient objects 60 times a second — pure GC churn:
@@ -2837,11 +2838,14 @@ const Scene = (() => {
   // drops itself and never comes back this session. The panel can still force
   // it on; a manual toggle clears the verdict.
   let frameLast = 0, frameSlow = 0, bloomGaveUp = false;
+  // 'auto' = the ladder below governs; a named tier pins the picture (settings)
+  let quality = 'auto';
 
   function watchFrameRate() {
     const now = performance.now();
     const gap = now - frameLast;
     frameLast = now;
+    if (quality !== 'auto') return; // a pinned tier is a promise — no stepping down
     if (gap <= 0 || gap > 250) return; // first frame, or a tab that was asleep
     // 40 ms, not 26: a display running at 30 Hz hands out 33 ms gaps however
     // fast the machine is, and dropping the neon on a healthy 30 Hz laptop
@@ -2874,6 +2878,7 @@ const Scene = (() => {
   // nothing, so every neon stroke silently loses its halo and keeps its line.
   let shadowsOff = false;
   function killShadows() {
+    if (shadowsOff) return; // the ladder and the settings dial may both ask
     shadowsOff = true;
     Object.defineProperty(ctx, 'shadowBlur', {
       configurable: true, // restorable by the debug override below
@@ -2884,7 +2889,9 @@ const Scene = (() => {
   function restoreShadows() {
     if (!shadowsOff) return;
     shadowsOff = false;
-    delete ctx.shadowBlur; // the prototype accessor takes over again
+    // not a bare delete: that would also lose the reflection interceptor above
+    installReflectGuard();
+    if (!shadowDesc || !shadowDesc.get || !shadowDesc.set) delete ctx.shadowBlur;
   }
 
   function drawBloom() {
@@ -4804,6 +4811,23 @@ const Scene = (() => {
     drawGrain();
   }
 
+  // The settings screen's quality dial. 'auto' is the shipped behavior: full
+  // quality with the ladder above stepping down while frames stay slow. A named
+  // tier pins the picture and turns the ladder off — a player who chose "high"
+  // on a weak machine prefers the stutter to the downgrade, and one who chose
+  // "low" on a strong one wants the battery, not the neon. The tiers mirror the
+  // ladder's own rungs: medium drops the bloom and one resolution step, low
+  // additionally kills the glow and takes resolution to the floor.
+  function setQuality(q) {
+    quality = q;
+    bloomGaveUp = false;
+    frameSlow = 0;
+    fx0.bloom = q !== 'medium' && q !== 'low';
+    if (q === 'low') killShadows(); else restoreShadows();
+    const step = q === 'medium' ? 1 : q === 'low' ? RES_STEPS.length - 1 : 0;
+    if (step !== resStep) { resStep = step; resize(); }
+  }
+
   // Flip one effect.
   function setFx(name, on) {
     if (!(name in fx0)) return fx0;
@@ -4823,5 +4847,5 @@ const Scene = (() => {
   initTraffic();
 
   return { render, setAct, setCinema, setWeather, slash, burst, floatText, phantomScatter, bolt, corpse, heroDie, heroHurt, shake, flash, punch, gust,
-    setPeril, glint, heroShock, setFx, getFx: () => fx0, X: (side, dist) => X(side, dist) };
+    setPeril, glint, heroShock, setFx, getFx: () => fx0, setQuality, X: (side, dist) => X(side, dist) };
 })();
