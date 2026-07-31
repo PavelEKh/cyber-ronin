@@ -311,7 +311,8 @@ const Scene = (() => {
   // Post-processing and near-plane switches. Kept public so the debug panel can
   // flip them one at a time — an effect you cannot turn off is an effect you
   // cannot judge.
-  const fx0 = { bloom: true, signLight: true, foreground: true, grain: true };
+  // impact: the hit-feel package — camera kick, punch zoom, kill shockwaves
+  const fx0 = { bloom: true, signLight: true, foreground: true, grain: true, impact: true };
 
   // Top strip owned by the HUD (armor pips, the 44px combo counter, the act and
   // score lines): CSS pixels, fixed, because the HUD is DOM and does not scale
@@ -3285,9 +3286,13 @@ const Scene = (() => {
     const slashing = age < 0.16;
     const face = cinemaMode ? 1 : (slashing ? lastSlash.side : (lastSlash.side || 1));
     const color = stunned && Math.floor(t * 20) % 2 ? '#ff5c7a' : '#eaf6ff';
+    // the lunge: the body follows the swing a few pixels and settles back —
+    // the camera kick moves the whole frame, this moves the ronin IN the frame
+    const lg = slashing && !cinemaMode ? lastSlash.side * (1 - age / 0.16) * 7 * S : 0;
+    const hx = cx + lg;
 
-    groundGlow(cx, st.accent2, 60 * S);
-    contactShadow(cx, 26 * S);
+    groundGlow(hx, st.accent2, 60 * S);
+    contactShadow(hx, 26 * S);
 
     // ---------- sprite hero (the pixel cyber ronin) ----------
     if (Sprites.ready()) {
@@ -3311,12 +3316,23 @@ const Scene = (() => {
       } else {
         idx = Math.floor(t * 10); // idle-stance breathing
       }
-      if (Sprites.draw(ctx, 'hero', name, idx, cx, groundY, scale, face, glow)) {
+      // afterimage: on a deep streak the swing leaves ghosts of itself behind
+      // the lunge — the flow made visible. Skipped in the reflection pass;
+      // a smeared blur in the wet ground would read as dirt, not speed.
+      if (slashing && !reflectPass && run && run.combo >= 10) {
+        ctx.save();
+        ctx.globalAlpha = 0.28 * (1 - age / 0.16);
+        Sprites.draw(ctx, 'hero', name, idx, hx - lastSlash.side * 7 * S, groundY, scale, face, null);
+        ctx.globalAlpha = 0.13 * (1 - age / 0.16);
+        Sprites.draw(ctx, 'hero', name, idx, hx - lastSlash.side * 14 * S, groundY, scale, face, null);
+        ctx.restore();
+      }
+      if (Sprites.draw(ctx, 'hero', name, idx, hx, groundY, scale, face, glow)) {
         // sparks of charged implants near the blade
         if ((execReady || chainReady) && !reflectPass && Math.random() < 0.3) {
           fx.parts.push({
             kind: 'ember',
-            x: cx + face * (14 + Math.random() * 14) * S,
+            x: hx + face * (14 + Math.random() * 14) * S,
             y: groundY - (20 + Math.random() * 16) * S,
             vx: (Math.random() - 0.5) * 20,
             vy: -30 - Math.random() * 40,
@@ -3471,6 +3487,10 @@ const Scene = (() => {
     ['punk', 'shield', 'thrower', 'fencer', 'adapt', 'twin']
       .map((t) => [t, { glow: ENEMY_STYLE[t].glow }]));
 
+  // The one place that knows which types hover instead of walking — shared by
+  // the body drawing (shadow, ground anchor) and the glint bracket box.
+  const isFlying = (t) => t === 'drone' || t === 'mimic';
+
   function drawEnemy(e, t, run) {
     // FOG mutator: everything beyond the veil is invisible — enemies materialize
     if (run && Game.mutHas(run, 'fog') && e.dist > Game.FOG_DIST) return;
@@ -3560,7 +3580,7 @@ const Scene = (() => {
     groundGlow(x, st.accent, 40 * S);
     // the drone flies: a small, faint shadow instead of a footprint. A mimic wears
     // the same disguise, so it hovers too.
-    const flying = e.type === 'drone' || e.type === 'mimic';
+    const flying = isFlying(e.type);
     contactShadow(x, (flying ? 14 : 21) * S, flying ? 0.45 : 1);
 
     // sprite humanoid; mechanical overlays (shields, «!», pips) are drawn afterwards on top
@@ -3851,22 +3871,41 @@ const Scene = (() => {
     Object.entries(ENEMY_STYLE).map(([t, v]) => [t, v.color]));
   const CORPSE_LIFE = 0.55;
 
-  function corpse(side, dist, type, scale) {
-    fx.corpses.push({ side, x: X(side, dist), type, scale: scale || 1, t0: fx.t });
+  // exec: an execution hits harder than a clean kill — the pieces fly farther,
+  // turn over faster and live twice as long, so «КАЗНЬ» finally looks the way
+  // it sounds. (The default 0.55s minus the exec hitstop left barely a third
+  // of a second of visible flight — the send-off died before it was seen.)
+  function corpse(side, dist, type, scale, exec) {
+    // Anchored in WORLD space, not screen space: a kill usually dashes the hero
+    // forward and the camera glides after him — a corpse pinned to its screen
+    // pixel would ride the pan, and the exec send-off visually cancelled into
+    // "it hopped back and vanished". The anchor reads the run's live worldX:
+    // by the time the kill event arrives the dash has already happened, and
+    // dist is measured from the hero's NEW position — the render's own camera
+    // state is still a frame behind.
+    const wx0 = (state.run ? state.run.worldX : worldVis) + side * dist;
+    fx.corpses.push({ side, wx: wx0, type, scale: scale || 1, exec: !!exec,
+                      life: exec ? 1.15 : CORPSE_LIFE, t0: fx.tr });
   }
 
   function drawCorpses() {
     for (const c of fx.corpses) {
-      const k = (fx.t - c.t0) / CORPSE_LIFE;
+      const k = (fx.tr - c.t0) / (c.life || CORPSE_LIFE);
       if (k >= 1) continue;
       const color = CORPSE_COLORS[c.type] || eColor('drone');
       ctx.save();
-      ctx.globalAlpha = (1 - k) * 0.9;
+      // an executed body stays solid through most of its flight and burns out
+      // in the last third; an ordinary one dissolves from the first frame
+      ctx.globalAlpha = c.exec ? 0.9 * (1 - Math.max(0, (k - 0.62) / 0.38)) : (1 - k) * 0.9;
       if (c.type === 'drone' || c.type === 'mimic') {
         // the drone (and the mimic wearing its shape) stalls and falls, spinning —
-        // a killed mimic must not tip over as a humanoid it never was
-        ctx.translate(c.x + c.side * k * 16 * S, groundY - 44 * S + k * k * 42 * S);
-        ctx.rotate(k * 5 * c.side);
+        // a killed mimic must not tip over as a humanoid it never was.
+        // An executed one is batted clean across the road: a long climbing arc
+        // with a capped landing — it may slide and tumble, it never sinks.
+        const dx = k * (c.exec ? 140 : 16) * S;
+        const dy = c.exec ? Math.min(-k * 55 * S + k * k * 100 * S, 44 * S) : k * k * 42 * S;
+        ctx.translate(cx + (c.wx - worldVis) * unitPx + c.side * dx, groundY - 44 * S + dy);
+        ctx.rotate(k * (c.exec ? 11 : 5) * c.side);
         if (Sprites.ready() && Sprites.draw(ctx, 'drone', 'fly', 3, 0, 13 * S, SPR, -c.side, null)) {
           ctx.restore();
           continue;
@@ -3895,8 +3934,10 @@ const Scene = (() => {
         const fscale = boss ? 2 : (c.scale || 1);
         const cutY = -27 * S * fscale;       // the slash line, at the waist
         const dir = c.side;                  // the cut carries the pieces outward, off the hero
-        const spin = boss ? 1.3 : 2.2;       // heavy mass turns over slower
-        const fling = boss ? 20 : 34;        // and does not fly as far
+        // an execution multiplies the send-off: the top half SAILS half a road
+        // with real hang time (see the arc below) instead of tipping over
+        const spin = (boss ? 1.3 : 2.2) * (c.exec ? 2.6 : 1); // heavy mass turns over slower
+        const fling = boss ? 20 : (c.exec ? 300 : 34);        // and does not fly as far
         const hw = 46 * S * fscale;
         const sprScale = boss ? SPR_BOSS : (SPRITE_CONF[c.type] ? SPR : 0);
         const drawFig = () => {
@@ -3905,19 +3946,27 @@ const Scene = (() => {
             stickman(0, 0, { color, face: -c.side, pose: 'idle', scale: fscale });
           }
         };
-        ctx.translate(c.x, groundY);
+        ctx.translate(cx + (c.wx - worldVis) * unitPx, groundY);
+        // The half-clips are applied AFTER the piece's own transform, in its
+        // local space — the window travels and tumbles with the piece. Clipping
+        // first pinned the window to the death spot, and any flight longer than
+        // the window's width carried the piece out of it into invisibility:
+        // the harder the send-off, the sooner it vanished.
         // lower half — clipped from the waist down; buckles straight down
         ctx.save();
-        ctx.beginPath(); ctx.rect(-hw, cutY, hw * 2, -cutY + 10 * S * fscale); ctx.clip();
         ctx.translate(dir * k * 5 * S * fscale, k * 13 * S * fscale);
         ctx.rotate(dir * k * 0.3);
+        ctx.beginPath(); ctx.rect(-hw, cutY, hw * 2, -cutY + 10 * S * fscale); ctx.clip();
         drawFig();
         ctx.restore();
-        // upper half — clipped from the waist up; flung along the cut, pitching over
+        // upper half — clipped from the waist up; flung along the cut, pitching over.
+        // The vertical arc climbs, falls and CAPS at ground level: the piece
+        // lands and tumbles along the road instead of sinking through it.
         ctx.save();
-        ctx.beginPath(); ctx.rect(-hw, -76 * S * fscale, hw * 2, cutY + 76 * S * fscale); ctx.clip();
-        ctx.translate(dir * k * fling * S * fscale, -k * 7 * S * fscale + k * k * 48 * S * fscale);
+        ctx.translate(dir * k * fling * S * fscale,
+                      Math.min(-k * (c.exec ? 95 : 7) + k * k * (c.exec ? 115 : 48), 14) * S * fscale);
         ctx.rotate(dir * k * spin);
+        ctx.beginPath(); ctx.rect(-hw, -76 * S * fscale, hw * 2, cutY + 76 * S * fscale); ctx.clip();
         drawFig();
         ctx.restore();
         // the cut flash — a brief white blade line across the waist as it parts
@@ -3941,7 +3990,7 @@ const Scene = (() => {
       }
       ctx.restore();
     }
-    fx.corpses = fx.corpses.filter(c => fx.t - c.t0 < CORPSE_LIFE);
+    fx.corpses = fx.corpses.filter(c => fx.tr - c.t0 < (c.life || CORPSE_LIFE));
   }
 
   // ---------- Warden (the act boss) ----------
@@ -4226,7 +4275,13 @@ const Scene = (() => {
   }
 
   // ---------- Effects ----------
-  const fx = { t: 0, parts: [], slashes: [], texts: [], bolts: [], corpses: [], rings: [], shake: 0, flash: null };
+  // fx.t rides the (possibly warped) game dt; fx.tr is the aftermath clock —
+  // min(dt, rawDt), so the empty-approach fast-forward can NOT eat it, while
+  // slow-mo still stretches it and a hitstop still freezes it. Corpses live on
+  // tr: an execution's send-off plays at full length even when the next threats
+  // are far and the world has already jumped to 5.5×.
+  const fx = { t: 0, tr: 0, parts: [], slashes: [], texts: [], bolts: [], corpses: [], rings: [], shocks: [],
+               shake: 0, kick: 0, punch: 0, flash: null };
   let lastWX = null; // previous worldX — for dash splashes
 
   // The Arc Discharge bolt: a zigzag from the first target to the far one
@@ -4237,6 +4292,9 @@ const Scene = (() => {
   function slash(side, hit) {
     lastSlash = { side, t: fx.t };
     fx.slashes.push({ side, t0: fx.t, hit });
+    // a landed blow drags the frame a few pixels along the swing — during a
+    // hitstop dt is zero, so the kick holds through the freeze and then releases
+    if (hit && fx0.impact) fx.kick = side * 6;
   }
 
   function burst(side, dist, color, n = 14) {
@@ -4251,6 +4309,15 @@ const Scene = (() => {
         age: 0, color,
       });
     }
+    // kill-weight bursts (a plain hit sends 5–6 sparks) also pop a shockwave
+    // ring — the crisp edge that makes the death read as a burst, not a puff
+    if (n >= 14 && fx0.impact) fx.shocks.push({ x, y, t0: fx.t, color });
+  }
+
+  // A milestone ring: the shockwave bursts from the hero himself, wider than
+  // any kill's — the streak belongs to him, not to the enemy that fell.
+  function heroShock(color) {
+    if (fx0.impact) fx.shocks.push({ x: cx, y: groundY - 34 * S, t0: fx.t, color, r1: 170 });
   }
 
   function floatText(txt, side, dist, color) {
@@ -4275,6 +4342,9 @@ const Scene = (() => {
 
   function shake(p) { fx.shake = Math.min(18, fx.shake + p); }
   function flash(color, a) { fx.flash = { color, a }; }
+  // a brief zoom pulse around the fighting band — executes, boss deaths, wounds.
+  // Capped low: the camera may punctuate a moment, never blur the next read.
+  function punch(p) { if (fx0.impact) fx.punch = Math.min(0.055, fx.punch + p); }
 
   function drawFx(dt) {
     // slashes
@@ -4297,6 +4367,24 @@ const Scene = (() => {
       ctx.restore();
     }
     fx.slashes = fx.slashes.filter(sl => fx.t - sl.t0 <= 0.2);
+
+    // shockwave rings at kill points: fast out, soft fade
+    for (const sh of fx.shocks) {
+      const k = (fx.t - sh.t0) / 0.28;
+      if (k >= 1) continue;
+      const e = 1 - Math.pow(1 - k, 2.2); // most of the travel in the first frames
+      ctx.save();
+      ctx.strokeStyle = k < 0.25 ? '#ffffff' : sh.color;
+      ctx.globalAlpha = 0.85 * (1 - k);
+      ctx.shadowColor = sh.color;
+      ctx.shadowBlur = 12;
+      ctx.lineWidth = (3 - 2 * k) * S;
+      ctx.beginPath();
+      ctx.arc(sh.x, sh.y, (12 + (sh.r1 || 68) * e) * S, 0, 7);
+      ctx.stroke();
+      ctx.restore();
+    }
+    fx.shocks = fx.shocks.filter(sh => fx.t - sh.t0 < 0.28);
 
     // ripple rings from dashes
     for (const rg of fx.rings) {
@@ -4402,6 +4490,66 @@ const Scene = (() => {
     }
   }
 
+  // The hero stands one hit from death — main.js flips this alongside the
+  // audio's Sound.setPeril, the render above turns it into the red breathing.
+  let perilOn = false;
+  function setPeril(on) { perilOn = !!on; }
+
+  // ---------- Zone-entry glints ----------
+  // The gate lights up under a crosser: main.js reports the moment a walker
+  // (or the Warden, id 'boss') steps into reach, and for a beat the silhouette
+  // catches a scanline while a ring blinks at its feet. Timing turns from a
+  // distance to eyeball into a signal to react to.
+  const glints = new Map(); // enemy id | 'boss' → fx.t of the crossing
+  function glint(id) { glints.set(id, fx.t); }
+
+  function drawGlints(run) {
+    if (!glints.size || !run) return;
+    for (const [id, t0] of glints) {
+      const k = (fx.t - t0) / 0.22;
+      const e = id === 'boss' ? run.boss
+        : run.enemies.find(o => o.id === id && !o.dead && o.kind !== 'proj');
+      if (k >= 1 || !e) { glints.delete(id); continue; }
+      const x = X(e.side, e.dist);
+      ctx.save();
+      // the lock-on brackets: four corners snap onto the silhouette — wide on
+      // the first frame, tight by half-life — and fade as they hold. The box
+      // derives from the sprite scale the drawers use (one humanoid box at
+      // SPR, the Warden at SPR_BOSS scales with it), so a future enemy type
+      // needs no tuning here — only a flyer joins the isFlying hover branch.
+      const bodyK = id === 'boss' ? SPR_BOSS / SPR : 1;
+      let half = 15 * S * bodyK, yTop = groundY - 48 * S * bodyK, yBot = groundY - 2;
+      if (id !== 'boss' && isFlying(e.type)) {
+        const yc = groundY - 44 * S + Math.sin(fx.t * 4 + e.id) * 5 * S;
+        half = 12 * S; yTop = yc - 13 * S; yBot = yc + 13 * S;
+      }
+      const pad = (3 + 10 * Math.pow(1 - Math.min(k * 2, 1), 2)) * S;
+      const arm = 6 * S;
+      const x0 = x - half - pad, x1 = x + half + pad;
+      const y0 = yTop - pad * 0.6, y1 = yBot + pad * 0.2;
+      ctx.strokeStyle = '#eafcff';
+      ctx.shadowColor = '#26d6ff';
+      ctx.shadowBlur = 12;
+      ctx.globalAlpha = 0.9 * (1 - k);
+      ctx.lineWidth = 2 * S;
+      ctx.beginPath();
+      ctx.moveTo(x0 + arm, y0); ctx.lineTo(x0, y0); ctx.lineTo(x0, y0 + arm);
+      ctx.moveTo(x1 - arm, y0); ctx.lineTo(x1, y0); ctx.lineTo(x1, y0 + arm);
+      ctx.moveTo(x0 + arm, y1); ctx.lineTo(x0, y1); ctx.lineTo(x0, y1 - arm);
+      ctx.moveTo(x1 - arm, y1); ctx.lineTo(x1, y1); ctx.lineTo(x1, y1 - arm);
+      ctx.stroke();
+      // the gate ring under the feet
+      ctx.strokeStyle = '#26d6ff';
+      ctx.shadowBlur = 8;
+      ctx.globalAlpha = 0.7 * (1 - k);
+      ctx.beginPath();
+      const rr = (9 + 26 * k) * S;
+      ctx.ellipse(x, groundY + 2, rr, rr * 0.22, 0, 0, 7);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   // ---------- Act change ----------
   function setAct(id) {
     if (!ACT_STYLE[id]) id = 'street';
@@ -4417,8 +4565,9 @@ const Scene = (() => {
   }
 
   // ---------- Frame ----------
-  function render(st8, dt) {
+  function render(st8, dt, rdt) {
     fx.t += dt;
+    fx.tr += Math.min(dt, rdt === undefined ? dt : rdt); // see fx.tr above
     driftPx += (scene().drift || 0) * unitPx * dt; // scenes that move on their own
     // the menu postcard pans on its own — a slow travelling shot through the
     // parallax with no one on the ground
@@ -4458,6 +4607,20 @@ const Scene = (() => {
       ctx.translate((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake);
       fx.shake *= Math.pow(0.001, dt); // fast decay
     } else fx.shake = 0;
+    // impact kick: the frame dragged a few pixels along the last landed swing.
+    // Purely horizontal and gone in ~100ms — it punctuates, it never disorients.
+    if (Math.abs(fx.kick) > 0.2) {
+      ctx.translate(fx.kick, 0);
+      fx.kick *= Math.pow(0.0005, dt); // dt is 0 under hitstop: the kick holds, then snaps back
+    } else fx.kick = 0;
+    // punch zoom: a heartbeat of scale around the fighting band on heavy moments
+    if (fx.punch > 0.001) {
+      const py = groundY - 40 * S;
+      ctx.translate(cx, py);
+      ctx.scale(1 + fx.punch, 1 + fx.punch);
+      ctx.translate(-cx, -py);
+      fx.punch *= Math.pow(0.002, dt);
+    } else fx.punch = 0;
     // Carriage ride: a slow vertical roll with a faster tremor under it. Amplitude
     // is deliberately under a pixel and a half — enough to feel the train, far too
     // little to move a strike marker or blur the fighting band. A camera that
@@ -4559,6 +4722,7 @@ const Scene = (() => {
       const liveIds = new Set(run.enemies.map(en => en.id));
       for (const id of [...enemyVis.keys()]) if (!liveIds.has(id)) enemyVis.delete(id);
       for (const e of run.enemies) drawEnemy(e, fx.t, run);
+      drawGlints(run); // zone-entry flares sit over the silhouettes they mark
       if (Game.mutHas(run, 'fog')) drawFogVeil();
       if (run.boss) {
         const b = run.boss;
@@ -4617,6 +4781,23 @@ const Scene = (() => {
     drawForeground(fx.t); // nearest plane: over the fighters and their effects
     drawBranch(fx.t);     // the summit's foreground foliage, nearest of all
     ctx.restore();
+    // peril: on the last armor pip the frame's edges breathe red — the picture
+    // finally says what the tightened mix (Sound.setPeril) already whispers.
+    // Drawn outside the shake so the pulse stays a steady heartbeat, and under
+    // the bloom/grain so it sits IN the image rather than on the glass.
+    if (perilOn && st8.phase === 'combat') {
+      ctx.save();
+      ctx.globalAlpha = 0.15 + 0.1 * (0.5 + 0.5 * Math.sin(fx.t * 7.2));
+      ctx.fillStyle = grad('peril', () => {
+        const y = groundY - 60 * S;
+        const g = ctx.createRadialGradient(cx, y, Math.min(W, H) * 0.34, cx, y, Math.max(W, H) * 0.8);
+        g.addColorStop(0, 'rgba(255,28,58,0)');
+        g.addColorStop(1, 'rgba(255,28,58,0.85)');
+        return g;
+      });
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
     // post: the finished frame, shake included
     watchFrameRate();
     drawBloom();
@@ -4641,6 +4822,6 @@ const Scene = (() => {
   initWeather();
   initTraffic();
 
-  return { render, setAct, setCinema, setWeather, slash, burst, floatText, phantomScatter, bolt, corpse, heroDie, heroHurt, shake, flash, gust,
-    setFx, getFx: () => fx0, X: (side, dist) => X(side, dist) };
+  return { render, setAct, setCinema, setWeather, slash, burst, floatText, phantomScatter, bolt, corpse, heroDie, heroHurt, shake, flash, punch, gust,
+    setPeril, glint, heroShock, setFx, getFx: () => fx0, X: (side, dist) => X(side, dist) };
 })();

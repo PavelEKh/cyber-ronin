@@ -388,6 +388,13 @@ function build() {
   note('сетка крупнее — слышнее, но нота ждёт дольше (макс. задержка в строке состояния). '
      + 'удары не задерживаются никогда');
 
+  // --- feedback ---
+  row = section('отклик');
+  toggle(row, '📳 вибрация', () => Pad.getHaptics(), () => Pad.setHaptics(!Pad.getHaptics()));
+  toggle(row, '💢 смак камеры', () => Scene.getFx().impact, () => Scene.setFx('impact', !Scene.getFx().impact));
+  btn(row, '▸ тест вибро', () => Pad.test());
+  note('вибрация — геймпад и телефон разом; смак — пинок камеры, punch-зум и кольца');
+
   // --- render ---
   row = section('картинка');
   for (const [id, label] of [['bloom', '✦ блум'], ['signLight', '💡 свет вывесок'],

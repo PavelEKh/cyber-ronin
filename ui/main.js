@@ -10,11 +10,13 @@ const STR = {
   tagline:    ['путь клинка через неоновый город', 'a blade\u2019s path through the neon city'],
   btnStart:   ['⚔ В БОЙ', '⚔ FIGHT'],
   btnEndless: ['♾ БЕСКОНЕЧНОСТЬ', '♾ ENDLESS'],
+  btnMonthly: ['🌙 СИД МЕСЯЦА', '🌙 MONTHLY SEED'],
   btnDaily:   ['🗓 СИД ДНЯ', '🗓 DAILY SEED'],
   btnBoard:   ['🏅 ДОСКИ', '🏅 BOARDS'],
   boardTitle: ['ДОСКИ ПОЧЁТА', 'LEADERBOARDS'],
-  boardSub:   ['сид дня · кампания · бесконечность', 'daily seed · campaign · endless'],
+  boardSub:   ['сид дня · месяц · кампания · бесконечность', 'daily seed · monthly · campaign · endless'],
   tabDaily:   ['СИД ДНЯ', 'DAILY'],
+  tabMonthly: ['МЕСЯЦ', 'MONTHLY'],
   tabCampaign: ['КАМПАНИЯ', 'CAMPAIGN'],
   tabEndless: ['БЕСКОНЕЧНОСТЬ', 'ENDLESS'],
   btnShop:    ['💾 ПРОШИВКА', '💾 FIRMWARE'],
@@ -24,7 +26,7 @@ const STR = {
   logSub:     ['что удалось вытащить из выгрузок', 'what the uploads managed to keep'],
   btnHelp:    ['❔ КАК ИГРАТЬ', '❔ HOW TO PLAY'],
   choiceSub:  ['выбери имплант', 'choose an implant'],
-  choiceHint: ['цифры или клик', 'number keys or click'],
+  choiceHint: ['цифры, клик или геймпад', 'number keys, click, or gamepad'],
   deadTitle:  ['СИСТЕМА ОТКАЗАЛА', 'SYSTEM FAILURE'],
   deadSub:    ['клинок вернётся. всегда возвращается', 'the blade returns. it always does'],
   btnRetry:   ['⟳ ЕЩЁ ЗАБЕГ', '⟳ RUN AGAIN'],
@@ -121,8 +123,8 @@ const RESET_ARM_TIME = 4000; // ms the armed state lasts before it disarms itsel
 // through L() so overlay packs translate it per paragraph — a paragraph the
 // pack misses falls back to English alone, not the whole page.
 const HELP_PARAGRAPHS = [
-  [`<b>← A</b> — удар влево · <b>D →</b> — удар вправо. Мышью: <b>ЛКМ</b> — влево, <b>ПКМ</b> — вправо. На сенсоре — тап по половине экрана.`,
-   `<b>← A</b> — strike left · <b>D →</b> — strike right. Mouse: <b>left button</b> — left, <b>right button</b> — right. On touch — tap the screen half.`],
+  [`<b>← A</b> — удар влево · <b>D →</b> — удар вправо. Мышью: <b>ЛКМ</b> — влево, <b>ПКМ</b> — вправо. На сенсоре — тап по половине экрана. <b>Геймпад</b>: крестовина, бамперы, триггеры или стик — удары, <b>START</b> — пауза.`,
+   `<b>← A</b> — strike left · <b>D →</b> — strike right. Mouse: <b>left button</b> — left, <b>right button</b> — right. On touch — tap the screen half. <b>Gamepad</b>: d-pad, bumpers, triggers or a stick flick — strikes, <b>START</b> — pause.`],
   [`Бей врага, только когда он <b>в зоне досягаемости</b> (метки на земле). Удар по воздуху — короткий <b>стан</b>, сброс комбо, и пока ты висишь, <b>толпа ускоряется</b>.`,
    `Hit an enemy only when it is <b>within reach</b> (ground markers). Swinging at air — a short <b>stun</b>, a combo reset, and while you hang the <b>crowd speeds up</b>.`],
   [`<b>Дрон</b> умирает с одного удара. <b>Панк</b> после удара перелетает на другую сторону — добей там. <b>Щитовик</b> держит три удара. <b>Метатель</b> кидает сюрикен — отбей его обратно.`,
@@ -137,8 +139,8 @@ const HELP_PARAGRAPHS = [
    `From act two a wave may arrive with a <b>mutator</b> — a special rule (squall, fog, steel rain, blitz). Kills on such a wave pay extra credits.`],
   [`После каждой волны — выбор одного из трёх <b>имплантов</b>: они живут ровно один забег. После смерти кредиты остаются — трать их на <b>прошивку</b>, постоянные улучшения, которые переживают смерть. Первая победа открывает <b>бесконечность</b>: акты идут по кругу, рекорд — число волн.`,
    `After each wave — pick one of three <b>implants</b>: they live for exactly one run. Credits survive death — spend them on <b>firmware</b>, the permanent upgrades that outlive it. The first victory unlocks <b>endless</b>: acts cycle, the record is your wave count.`],
-  [`<b>Сид дня</b> — забег на общем для всех сиде: волны у всех одинаковые. <b>Прошивка</b> (постоянные улучшения из магазина) на этот забег отключена — доска сравнивает руки, а не кошельки; обычные импланты после волн работают как всегда. Попыток сколько угодно — на доску дня идёт лучший результат.`,
-   `The <b>daily seed</b> — a run on a seed shared by everyone: identical waves. <b>Firmware</b> (the shop's permanent upgrades) is offline for this run — the board compares hands, not wallets; ordinary implants after waves work as always. Attempts are unlimited — the day's board keeps your best result.`],
+  [`<b>Сид дня</b> — забег на общем для всех сиде: волны у всех одинаковые. <b>Прошивка</b> (постоянные улучшения из магазина) на этот забег отключена — доска сравнивает руки, а не кошельки; обычные импланты после волн работают как всегда. Попыток сколько угодно — на доску дня идёт лучший результат. <b>Сид месяца</b> — то же самое, но бесконечный забег на общем сиде всего календарного месяца; рекорд — волны.`,
+   `The <b>daily seed</b> — a run on a seed shared by everyone: identical waves. <b>Firmware</b> (the shop's permanent upgrades) is offline for this run — the board compares hands, not wallets; ordinary implants after waves work as always. Attempts are unlimited — the day's board keeps your best result. The <b>monthly seed</b> is the same contract as an endless run on one seed shared for the calendar month; the record is waves.`],
   [`<b>Esc</b> — пауза. На паузе показывают разбор текущей обстановки: правило мутатора волны, а во время боя со стражем — как именно его убивать.`,
    `<b>Esc</b> — pause. The pause screen breaks down the current situation: the wave mutator's rule, and during a Warden fight, exactly how to kill him.`],
 ];
@@ -165,9 +167,10 @@ let shopReturnTo = 'menu'; // which screen the implant shop was opened from
 
 function showScreen(name) {
   activeScreen = name;
+  padFocusSet(null); // the pad cursor never survives a screen change
   for (const s of SCREENS) $('screen-' + s).classList.toggle('hidden', s !== name);
   $('overlay').style.display = name ? 'block' : 'none';
-  if (name === 'menu') { renderMenu(); menuBgStart(); }
+  if (name === 'menu') { renderMenu(); menuBgStart(); startMenuMusic(); }
   if (name === 'shop') renderShop();
   if (name === 'ach') renderAch();
   if (name === 'board') renderBoardScreen();
@@ -192,6 +195,7 @@ function showScreen(name) {
 
 function hideScreens() {
   activeScreen = null;
+  padFocusSet(null);
   $('overlay').style.display = 'none';
 }
 
@@ -200,6 +204,20 @@ function hideScreens() {
 // instant — nobody's evening hands them tomorrow's seed early.
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// The monthly seed's key — same UTC decision as the daily, for the same reason.
+function monthStr() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+// Archive stepping for the boards screen: days for the daily, months for the monthly.
+function shiftDay(dateStr, delta) {
+  return new Date(Date.parse(dateStr + 'T12:00:00Z') + delta * 864e5).toISOString().slice(0, 10);
+}
+function shiftMonth(mStr, delta) {
+  const [y, m] = mStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1 + delta, 15)).toISOString().slice(0, 7);
 }
 
 function renderMenu() {
@@ -212,6 +230,15 @@ function renderMenu() {
   be.classList.toggle('locked', !unlocked);
   be.title = unlocked ? '' : L('открывается после победы во всех шести актах',
     'unlocks after clearing all six acts');
+  // the monthly seed: an endless run on a seed shared for the calendar month —
+  // same unlock as endless, same firmware freeze as the daily
+  const bm = $('btn-monthly');
+  bm.disabled = !unlocked;
+  bm.classList.toggle('locked', !unlocked);
+  bm.title = unlocked
+    ? L('общий бесконечный сид на весь месяц, прошивка отключена — рекорд в волнах',
+        'one shared endless seed for the whole month, firmware offline — the record is waves')
+    : L('открывается после победы во всех шести актах', 'unlocks after clearing all six acts');
   // the daily: retries are free, the board keeps the day's best
   const daily = state.meta.daily;
   const played = !!(daily && daily.date === todayStr() && daily.done);
@@ -234,9 +261,15 @@ function renderMenu() {
     ? '<br>' + F('сид дня: лучший {s} · акт {a}', 'daily seed: best {s} · act {a}', { s: Game.fmt(daily.score), a: romanAct(daily.act) }) +
       (daily.victory ? ' · ✓' : '')
     : '';
+  // the month's deepest dive, while the ledger still points at the current month
+  const monthly = state.meta.monthly;
+  const monthlyLine = monthly && monthly.month === monthStr() && monthly.done
+    ? '<br>' + F('сид месяца: {n} волн', 'monthly seed: {n} waves',
+        { n: (monthly.act - 1) * Game.WAVES_PER_ACT + monthly.wave })
+    : '';
   $('menu-stats').innerHTML = st.runs
     ? F('забегов: {r} · побед: {w} · убийств: {k}', 'runs: {r} · wins: {w} · kills: {k}', { r: st.runs, w: st.wins, k: Game.fmt(st.totalKills) }) + '<br>' +
-      F('рекорд: {s} · лучшее комбо: {c}', 'best score: {s} · best combo: {c}', { s: Game.fmt(st.bestScore), c: st.bestCombo }) + endlessLine + dailyLine
+      F('рекорд: {s} · лучшее комбо: {c}', 'best score: {s} · best combo: {c}', { s: Game.fmt(st.bestScore), c: st.bestCombo }) + endlessLine + dailyLine + monthlyLine
     : L('враги идут с двух сторон. у тебя две кнопки. этого достаточно',
         'enemies come from both sides. you have two buttons. that is enough');
 }
@@ -244,11 +277,26 @@ function renderMenu() {
 // ---------- The boards screen ----------
 // Three boards behind three tabs; the daily tab always means TODAY's date.
 let boardTab = 'daily';
+let boardBack = 0; // archive steps behind today: days on the daily tab, months on the monthly
+
+// How deep the archive walker goes. The worker serves any past board; the cap
+// only keeps the ‹ button from walking into the empty pre-launch void forever.
+const BOARD_BACK_MAX = { daily: 90, monthly: 24 };
 
 function renderBoardScreen() {
-  const key = boardTab === 'daily' ? todayStr() : boardTab;
+  const archival = boardTab === 'daily' || boardTab === 'monthly';
+  const key = boardTab === 'daily' ? shiftDay(todayStr(), -boardBack)
+    : boardTab === 'monthly' ? shiftMonth(monthStr(), -boardBack)
+    : boardTab;
   for (const b of document.querySelectorAll('#board-tabs button')) {
     b.classList.toggle('primary', b.dataset.key === boardTab);
+  }
+  // the archive walker lives only under the dated tabs
+  $('board-nav').classList.toggle('hidden', !archival);
+  if (archival) {
+    $('board-nav-label').textContent = key;
+    $('board-next').disabled = boardBack === 0;
+    $('board-prev').disabled = boardBack >= BOARD_BACK_MAX[boardTab];
   }
   Board.view($('menu-board'), key);
 }
@@ -334,6 +382,7 @@ function renderChoice() {
     : L('ВОЛНА ЗАЧИЩЕНА', 'WAVE CLEARED');
   const cards = $('choice-cards');
   cards.innerHTML = '';
+  padSel = -1; // fresh cards, no pad cursor until the pad asks for one
   (r.offers || []).forEach((id, i) => {
     const im = Game.IMPLANTS.find(x => x.id === id);
     const owned = r.implants[id] || 0;
@@ -360,6 +409,51 @@ function rerollChoice() {
     Sound.sfx('buy');
     renderChoice();
   }
+}
+
+// The tally: numbers on the run-end screens reel up from zero, row after row,
+// with a soft click per step — the arcade habit that makes a payout FELT
+// instead of merely displayed. Purely presentational: the DOM already holds
+// the final strings, the reel only animates the first number in each cell and
+// lands on the exact original text.
+let tallyRaf = 0;
+function animateTally(elId) {
+  cancelAnimationFrame(tallyRaf);
+  const NUM = /\d[\d\s]*\d|\d/; // a formatted number: digits with group spaces, ends on a digit
+  const jobs = [];
+  [...$(elId).querySelectorAll('.v')].forEach((c, i) => {
+    const final = c.textContent;
+    const m = NUM.exec(final);
+    if (!m) return;
+    const post = final.slice(m.index + m[0].length);
+    if (post.startsWith('-')) return; // a date, not a score — never reel the calendar
+    const target = Number(m[0].replace(/\D/g, ''));
+    if (!Number.isFinite(target) || target <= 0) return;
+    const jb = { c, final, pre: final.slice(0, m.index), post, target,
+                 at: 0.15 + i * 0.12, dur: 0.5 };
+    c.textContent = jb.pre + '0' + jb.post;
+    jobs.push(jb);
+  });
+  if (!jobs.length) return;
+  const t0 = performance.now();
+  let lastTick = -1;
+  const step = (now) => {
+    const t = (now - t0) / 1000;
+    let live = false;
+    for (const jb of jobs) {
+      const k = (t - jb.at) / jb.dur;
+      if (k >= 1) { jb.c.textContent = jb.final; continue; }
+      live = true;
+      if (k < 0) continue; // this row's turn has not come yet
+      const e = 1 - Math.pow(1 - k, 3); // fast start, soft landing
+      jb.c.textContent = jb.pre + Game.fmt(Math.round(jb.target * e)) + jb.post;
+    }
+    // the reel's voice: a quiet click every few steps, pitch climbing with time
+    if (live && t - lastTick > 0.05) { lastTick = t; Sound.sfx('tally', 1 + t * 0.5); }
+    if (live) tallyRaf = requestAnimationFrame(step);
+    else for (const jb of jobs) jb.c.textContent = jb.final; // land exactly on the source text
+  };
+  tallyRaf = requestAnimationFrame(step);
 }
 
 function renderEndStats(elId) {
@@ -400,6 +494,7 @@ function renderEndStats(elId) {
   );
   $(elId).innerHTML = rows.map(([k, v, cls]) =>
     `<div class="k">${k}</div><div class="v ${cls || ''}">${v}</div>`).join('');
+  animateTally(elId);
   // the one piece of advice under the numbers, chosen by what actually went wrong
   if (elId === 'dead-stats') {
     const tipEl = $('dead-tip');
@@ -441,6 +536,14 @@ const MENU_BG_DIP = 700;     // ms of the dip (must match #menu-fade transition)
 let menuBgTimer = null;
 let menuBgIdx = 1 + Math.floor(Math.random() * (Game.ACTS.length - 1)); // 1..5 — anything but street
 
+// The menu's ambient set: the same engine playing the postcard cut — started
+// once, not restarted on every wander back from the shop or the boards.
+function startMenuMusic() {
+  if (Sound.playingAct() === 'menu') return;
+  Sound.startMusic('menu'); // silently a no-op until the first gesture unlocks audio
+  Sound.setMenuAct(Game.ACTS[menuBgIdx].id); // the set opens in the postcard's key
+}
+
 function menuBgStart() {
   if (menuBgTimer) return;
   Scene.setAct(Game.ACTS[menuBgIdx].id);
@@ -452,6 +555,7 @@ function menuBgStart() {
       if (state.phase === 'menu') {
         menuBgIdx = (menuBgIdx + 1) % Game.ACTS.length;
         Scene.setAct(Game.ACTS[menuBgIdx].id);
+        Sound.setMenuAct(Game.ACTS[menuBgIdx].id); // the music modulates with the view
       }
       $('menu-fade').style.opacity = '0';
     }, MENU_BG_DIP);
@@ -509,8 +613,10 @@ function updateHud() {
       html += `<div class="${cls}"></div>`;
     }
     $('hud-armor').innerHTML = html;
-    // the last pip already reads as danger on screen — say it in the mix too
+    // the last pip already reads as danger on screen — say it in the mix too,
+    // and let the frame's edges breathe red along with it
     Sound.setPeril(r.hp === 1);
+    Scene.setPeril(r.hp === 1);
   }
   if (r.combo !== hudCombo) {
     const grew = r.combo > hudCombo;
@@ -518,10 +624,18 @@ function updateHud() {
     // the arrangement follows the streak: layers build as the flow deepens and
     // fall away the instant it breaks
     Sound.setTier(comboTier(r.combo));
-    // milestone streaks get the drop — the whole track goes under and slams back
+    // milestone streaks get the drop — the whole track goes under and slams back,
+    // and the picture answers: a gold flash, a ring bursting from the hero, a
+    // breath of zoom and the streak's number floating over his head. The loudest
+    // achievement of a run finally LOOKS different from an ordinary kill.
     if (grew && MILESTONES.includes(r.combo)) {
       Sound.dropMusic(r.combo >= 50 ? 1.3 : 1);
       slowmo = Math.max(slowmo, 0.45); // the picture stretches with the sound
+      Scene.flash('#ffd94d', 0.12);
+      Scene.punch(0.03);
+      Scene.heroShock('#ffd94d');
+      Scene.floatText('×' + r.combo, 0, 0, '#ffd94d');
+      Pad.impact(0.6, 130);
     }
     const el = $('combo-num');
     el.textContent = r.combo;
@@ -574,6 +688,9 @@ function updateHud() {
 let paused = false;
 let slowmo = 0;    // seconds of slow-mo left (end of wave)
 let hitstop = 0;   // seconds of frame freeze (hit juiciness)
+let resumeT = 0;   // resume grace: the world stands frozen under the 3-2-1
+let perilBeatT = 0; // countdown to the next peril heartbeat in the palms
+const RESUME_GRACE = 0.9; // three counts of 0.3s — long enough to re-grip, short enough to not annoy
 let warpCur = 1;   // smoothed fast-forward multiplier for the empty approach
 let dtSmooth = 1 / 60; // rolling frame time — see the note where the warp is applied
 let choiceDelay = 0; // delay before the choice screen — let the effects play out
@@ -608,7 +725,8 @@ function startReplayView(rec, label) {
   replayActive = true;
   state = Game.replayState(rec);
   paused = false;
-  slowmo = hitstop = choiceDelay = simAcc = 0;
+  slowmo = hitstop = choiceDelay = simAcc = resumeT = 0;
+  $('resume-count').classList.add('hidden');
   warpCur = 1;
   hudCombo = -1; hudArmor = ''; hudMut = '';
   hideScreens();
@@ -681,11 +799,13 @@ function replayWatchEnd() {
 function startGame(mode) {
   Sound.ensure();
   if (mode === 'daily') Game.startDaily(state, todayStr());
+  else if (mode === 'monthly') Game.startMonthly(state, monthStr());
   paused = false;
-  slowmo = hitstop = choiceDelay = 0;
+  slowmo = hitstop = choiceDelay = resumeT = 0;
+  $('resume-count').classList.add('hidden');
   warpCur = 1;
   hudCombo = -1; hudArmor = ''; hudMut = '';
-  if (mode !== 'daily') Game.startRun(state, mode);
+  if (mode !== 'daily' && mode !== 'monthly') Game.startRun(state, mode);
   menuBgStop(); // the postcard reel ends — the road itself begins
   Scene.setAct(Game.ACTS[0].id);
   Sound.startMusic(Game.ACTS[0].id);
@@ -700,6 +820,10 @@ function startGame(mode) {
     popBanner(L('СИД ДНЯ', 'DAILY SEED'), todayStr(),
       L('общий сид · прошивка отключена · лучший результат — на доску',
         'shared seed · firmware offline · your best goes on the board'));
+  } else if (mode === 'monthly') {
+    popBanner(L('СИД МЕСЯЦА', 'MONTHLY SEED'), monthStr(),
+      L('общий сид · прошивка отключена · рекорд — волны',
+        'shared seed · firmware offline · the record is waves'));
   } else startCinema(CINE_INTRO, () => showActBanner(1));
 }
 
@@ -868,18 +992,21 @@ function handleStrikeEvent(ev) {
   switch (ev.type) {
     case 'kill':
       Scene.slash(ev.side, true);
-      Scene.corpse(ev.side, ev.dist, ev.enemy);
+      Scene.corpse(ev.side, ev.dist, ev.enemy, 1, ev.exec);
       if (ev.exec) {
         // execute: a fatter burst, longer hitstop, its own tag
         Scene.burst(ev.side, ev.dist, '#ffffff', 26);
         Scene.floatText(L('КАЗНЬ', 'EXECUTED'), ev.side, ev.dist, '#ff2d4e');
         Scene.flash('#ffffff', 0.1);
+        Scene.punch(0.03);
         Sound.sfx('exec', 1, sidePan(ev.side, ev.dist), ev.enemy);
+        Pad.impact(1, 110);
         hitstop = Math.max(hitstop, 0.09);
       } else {
         Scene.burst(ev.side, ev.dist, ev.chain ? '#baff4d' : '#ff5c9e');
         Sound.sfx('kill', comboPitch(), sidePan(ev.side, ev.dist), ev.enemy);
         comboNote(0.15);
+        Pad.impact(0.45, 55);
         hitstop = Math.max(hitstop, 0.045);
       }
       if (ev.vamp) {
@@ -892,12 +1019,14 @@ function handleStrikeEvent(ev) {
       Scene.burst(ev.side, Math.min(ev.dist, Game.range(state)), '#ffd98a', 6);
       Sound.sfx('slash', comboPitch(), sidePan(ev.side, ev.dist), ev.enemy);
       comboNote(0.09); // a plain hit sings quieter than a kill
+      Pad.impact(0.2, 35);
       break;
     case 'reflect':
       Scene.slash(ev.side, true);
       Scene.floatText(L('ОТБИТО!', 'DEFLECTED!'), ev.side, ev.dist, '#26d6ff');
       Sound.sfx('reflect', comboPitch(), sidePan(ev.side, ev.dist));
       comboNote(0.12);
+      Pad.impact(0.3, 45);
       break;
     case 'parried':
       Scene.slash(ev.side, false);
@@ -911,6 +1040,7 @@ function handleStrikeEvent(ev) {
       Scene.slash(ev.side, true);
       Scene.floatText(L('БЛОК', 'BLOCKED'), ev.side, ev.dist, '#b4ff3d');
       Sound.sfx('block', 1, sidePan(ev.side, ev.dist));
+      Pad.impact(0.25, 40);
       break;
     case 'phantomWhiff':
       // swung through a hologram — the swing catches nothing. Read as a miss, but
@@ -940,11 +1070,17 @@ function handleStrikeEvent(ev) {
       Scene.burst(-ev.side, ev.dist, '#ffd94d', 18);
       Scene.floatText(L('РЕЗОНАНС!', 'RESONANCE!'), ev.side, ev.dist, '#ffd94d');
       Sound.sfx('twinkill');
+      Scene.punch(0.025);
+      Pad.impact(0.7, 90);
       hitstop = Math.max(hitstop, 0.07);
       break;
     case 'ghostMiss':
       // an execute stole the press's target: a light slash, no penalty, no drama
       Scene.slash(ev.side, false);
+      break;
+    case 'buffered':
+      // the early press hangs in the buffer — deliberately silent: the swing
+      // itself fires a few ticks later as a full kill/hit/miss event
       break;
     case 'miss':
       Scene.slash(ev.side, false);
@@ -953,6 +1089,7 @@ function handleStrikeEvent(ev) {
       Sound.duckMusic(); // the track drops out from under the failed swing
       Scene.shake(7);
       Scene.flash('#ff2d4e', 0.14);
+      Pad.impact(0.15, 80); // a dull, hollow buzz — nothing like a landed blow
       break;
     case 'stunned':
       Sound.sfx('stunned');
@@ -965,6 +1102,7 @@ function handleStrikeEvent(ev) {
       Scene.burst(ev.side, Math.min(ev.dist, Game.range(state)), '#ffffff', 5);
       // a lying link leaves the corrupt-magenta trace, never the fencer's green
       if (ev.nextSide !== undefined) Scene.burst(ev.nextSide, ev.dist, ev.nextGlitch ? '#ff4de0' : '#ff3b3b', 5);
+      Pad.impact(0.3, 40);
       hitstop = Math.max(hitstop, 0.02);
       break;
     case 'qteHit':
@@ -973,6 +1111,7 @@ function handleStrikeEvent(ev) {
       // an arrival trace on the new side — shows where the Warden leapt
       if (ev.nextSide !== undefined) Scene.burst(ev.nextSide, ev.dist, ev.nextGlitch ? '#ff4de0' : '#ff3b3b', 5);
       Sound.sfx('slash', Sound.rung(ev.idx), sidePan(ev.side, ev.dist)); // the chain climbs the ladder, a rung per link
+      Pad.impact(0.3, 40);
       hitstop = Math.max(hitstop, 0.02);
       break;
     case 'qteFail':
@@ -990,6 +1129,7 @@ function handleStrikeEvent(ev) {
       Scene.floatText(L('ФАЗА ПРОБИТА', 'PHASE DOWN'), ev.side, ev.dist, '#ffb42d');
       Sound.sfx('kill');
       Scene.shake(8);
+      Pad.impact(0.6, 80);
       hitstop = Math.max(hitstop, 0.08);
       if (ev.summoned) {
         // Core Shogun called in backup
@@ -1004,7 +1144,9 @@ function handleStrikeEvent(ev) {
       Scene.burst(ev.side, ev.dist, '#ff3b3b', 20);
       Scene.floatText(L('СТРАЖ ПАЛ', 'WARDEN DOWN'), ev.side, ev.dist, '#ffb42d');
       Scene.flash('#ffffff', 0.25);
+      Scene.punch(0.05);
       Sound.sfx('bossdead');
+      Pad.impact(1, 250);
       slowmo = Math.max(slowmo, 1.0);
       hitstop = Math.max(hitstop, 0.1);
       break;
@@ -1261,10 +1403,22 @@ function handleTickEvent(ev) {
     case 'qteFail':
       Scene.floatText(L('СБОЙ', 'FAULT'), ev.side, 120, '#ff5c7a');
       break;
+    case 'bufferedStrike':
+      // a queued early press landed (or expired) inside the tick — it carries
+      // a full strike event and deserves the same sound and light
+      handleStrikeEvent(ev.ev);
+      break;
     case 'reflectKill':
       Scene.burst(ev.side, ev.dist, '#26d6ff');
-      Scene.corpse(ev.side, ev.dist, 'thrower');
-      Sound.sfx('kill', 1, sidePan(ev.side, ev.dist), 'thrower');
+      Scene.corpse(ev.side, ev.dist, ev.enemy || 'thrower');
+      Sound.sfx('kill', 1, sidePan(ev.side, ev.dist), ev.enemy || 'thrower');
+      Pad.impact(0.4, 55);
+      break;
+    case 'reflectHit':
+      // the returning blade bit a tougher walker — spent, but the plate rang
+      Scene.burst(ev.side, ev.dist, '#26d6ff', 6);
+      Sound.sfx('block', 1, sidePan(ev.side, ev.dist));
+      Pad.impact(0.2, 35);
       break;
     case 'vamp':
       Scene.floatText(L('+БРОНЯ', '+ARMOR'), 1, 60, '#2dff8f');
@@ -1277,6 +1431,7 @@ function handleTickEvent(ev) {
       Scene.flash('#2dff8f', 0.22);
       Scene.shake(10);
       Sound.sfx('vamp');
+      Pad.impact(0.8, 160);
       hitstop = Math.max(hitstop, 0.09);
       break;
     case 'hurt':
@@ -1284,7 +1439,9 @@ function handleTickEvent(ev) {
       Scene.heroHurt();
       Scene.flash('#ff2d4e', 0.35);
       Scene.shake(14);
+      Scene.punch(0.04);
       Sound.sfx('hurt', 1, sidePan(ev.side, 60));
+      Pad.impact(1, 220); // the heaviest thud in the game — losing armor must be felt
       Sound.duckMusic(0.04, 0.3, 0.5); // taking a hit collapses it harder and longer
       // contact death: an enemy that reached the hero falls too
       if (ev.enemy) Scene.corpse(ev.side, ev.dist || 40, ev.enemy);
@@ -1322,6 +1479,7 @@ function handleTickEvent(ev) {
     case 'dead':
       Sound.stopMusic();
       Sound.sfx('dead');
+      Pad.impact(1, 450); // one long roll under the shutdown
       // the killing blow already fired a full-strength hurt flash a moment ago;
       // overwrite it with a weak one so the death animation is not hidden behind
       // a red screen for its first quarter second
@@ -1352,6 +1510,7 @@ function handleTickEvent(ev) {
 
 function doStrike(side) {
   if (paused || replay || state.phase !== 'combat') return; // a ghost fights alone
+  if (resumeT > 0) return; // the world is frozen under the resume countdown
   Sound.ensure();
   handleStrikeEvent(Game.strike(state, side));
   updateHud();
@@ -1370,6 +1529,50 @@ function doSkipWave() {
 }
 
 // ---------- Input ----------
+// One resume path for every device (Esc, the pause button, the pad's A):
+// leaving a combat pause arms the 3-2-1 grace — the loop keeps the world
+// frozen under it, so nobody dies in the first frame after the kitchen.
+function resumeGame() {
+  paused = false;
+  hideScreens();
+  Sound.pauseMusic(false); // the track surfaces with the world
+  if (state.phase === 'combat' && !replay) resumeT = RESUME_GRACE;
+}
+
+// Esc and the gamepad's START share one meaning: pause, or step back a screen.
+function pressEscape() {
+  // in the viewer Esc is a pause, not an exit — the pause screen's «выйти»
+  // (quitToMenu, guarded there) is what leaves the ghost
+  if (replay) {
+    const hint = document.querySelector('[data-i18n="pauseHint"]');
+    if (!paused) {
+      paused = true;
+      Sound.pauseMusic(true);
+      if (hint) hint.textContent = L('реплей на паузе · ESC — продолжить · «выйти» вернёт назад',
+                                     'replay paused · ESC to resume · "quit" returns you back');
+      showScreen('pause');
+    } else {
+      paused = false;
+      Sound.pauseMusic(false);
+      if (hint) hint.textContent = L(...STR.pauseHint);
+      hideScreens();
+    }
+    return;
+  }
+  if (state.phase === 'combat' && !paused) {
+    paused = true;
+    Sound.pauseMusic(true); // the kitchen holds the track underwater
+    resumeT = 0; // pausing mid-countdown discards the countdown
+    $('resume-count').classList.add('hidden');
+    const hint = document.querySelector('[data-i18n="pauseHint"]');
+    if (hint) hint.textContent = L(...STR.pauseHint); // a replay pause may have left its text
+    showScreen('pause');
+  }
+  else if (paused) resumeGame();
+  else if (activeScreen === 'shop' || activeScreen === 'help') showScreen(shopReturnTo);
+  else if (activeScreen === 'ach' || activeScreen === 'log' || activeScreen === 'board') showScreen('menu');
+}
+
 document.addEventListener('keydown', e => {
   if (e.repeat) return;
   const code = e.code;
@@ -1380,34 +1583,7 @@ document.addEventListener('keydown', e => {
   if (activeScreen === 'choice' && code === 'KeyR') { rerollChoice(); return; }
   if (cinema) { endCinema(); return; } // any key skips the travelling shot
   if (replay && code === 'Space') { cycleReplaySpeed(); return; }
-  if (code === 'Escape') {
-    // in the viewer Esc is a pause, not an exit — the pause screen's «выйти»
-    // (quitToMenu, guarded there) is what leaves the ghost
-    if (replay) {
-      const hint = document.querySelector('[data-i18n="pauseHint"]');
-      if (!paused) {
-        paused = true;
-        if (hint) hint.textContent = L('реплей на паузе · ESC — продолжить · «выйти» вернёт назад',
-                                       'replay paused · ESC to resume · "quit" returns you back');
-        showScreen('pause');
-      } else {
-        paused = false;
-        if (hint) hint.textContent = L(...STR.pauseHint);
-        hideScreens();
-      }
-      return;
-    }
-    if (state.phase === 'combat' && !paused) {
-      paused = true;
-      const hint = document.querySelector('[data-i18n="pauseHint"]');
-      if (hint) hint.textContent = L(...STR.pauseHint); // a replay pause may have left its text
-      showScreen('pause');
-    }
-    else if (paused) { paused = false; hideScreens(); }
-    else if (activeScreen === 'shop' || activeScreen === 'help') showScreen(shopReturnTo);
-    else if (activeScreen === 'ach' || activeScreen === 'log' || activeScreen === 'board') showScreen('menu');
-    return;
-  }
+  if (code === 'Escape') { pressEscape(); return; }
   // hidden wave skip — the run stops counting toward records from here on
   if (code === 'KeyK' && e.ctrlKey && e.shiftKey) {
     e.preventDefault();
@@ -1422,7 +1598,7 @@ document.addEventListener('keydown', e => {
 $('scene').addEventListener('pointerdown', e => {
   // On touch the tap IS the strike — never let the browser turn it into a
   // scroll/zoom gesture (pairs with touch-action: none on #scene).
-  if (e.pointerType !== 'mouse') e.preventDefault();
+  if (e.pointerType !== 'mouse') { e.preventDefault(); Pad.noteTouch(); }
   if (cinema) { endCinema(); return; } // a tap skips the travelling shot
   if (state.phase !== 'combat' || paused) return;
   // A mouse has two buttons, so use them directly: left button strikes left, right
@@ -1442,10 +1618,106 @@ $('scene').addEventListener('pointerdown', e => {
 // the play field so the right-click lands as an attack instead of a popup.
 $('scene').addEventListener('contextmenu', e => e.preventDefault());
 
+// ---------- Gamepad ----------
+// Presses arrive through Pad.poll() in the loop — the Gamepad API has no
+// events for buttons. Strikes go through the same doStrike as every other
+// device; the card cursor below exists only for the choice screen, where a
+// pad has no pointer and no digit row.
+let padSel = -1; // highlighted implant card; -1 until the pad touches the screen
+
+function padSelMove(d) {
+  const cards = document.querySelectorAll('#choice-cards .implant-card');
+  if (!cards.length) return;
+  padSel = padSel < 0 ? (d > 0 ? 0 : cards.length - 1) : (padSel + d + cards.length) % cards.length;
+  cards.forEach((c, i) => c.classList.toggle('pad-sel', i === padSel));
+}
+
+// The button cursor for every other screen (menu, shop, pause…): up/down —
+// or left/right, whichever the thumb prefers — walks the screen's live
+// buttons in DOM order, A presses the lit one. Buttons stay ordinary DOM
+// buttons — the cursor clicks them, so pad, mouse and touch share one path.
+let padFocus = null; // the button under the pad cursor, or null
+
+function padFocusSet(b) {
+  if (padFocus) padFocus.classList.remove('pad-focus');
+  padFocus = b || null;
+  if (padFocus) {
+    padFocus.classList.add('pad-focus');
+    padFocus.scrollIntoView({ block: 'nearest' }); // long screens (shop, journal) scroll
+  }
+}
+
+function padNavList() {
+  if (!activeScreen) return [];
+  // offsetParent filters everything display:none — .hidden buttons, collapsed rows
+  return [...$('screen-' + activeScreen).querySelectorAll('button')]
+    .filter(b => !b.disabled && b.offsetParent !== null);
+}
+
+function padNavMove(d) {
+  const list = padNavList();
+  if (!list.length) return;
+  const i = list.indexOf(padFocus);
+  padFocusSet(list[i < 0 ? (d > 0 ? 0 : list.length - 1) : (i + d + list.length) % list.length]);
+}
+
+function padNavConfirm() {
+  if (padFocus && document.contains(padFocus)) {
+    // a click may rebuild the screen (buying firmware re-renders the shop) —
+    // put the cursor back where the list now has a same-numbered button
+    const i = padNavList().indexOf(padFocus);
+    padFocus.click();
+    if (!document.contains(padFocus)) {
+      const after = padNavList();
+      padFocusSet(after.length ? after[Math.min(Math.max(i, 0), after.length - 1)] : null);
+    }
+    return;
+  }
+  // no cursor yet: the screen's primary action, same as ENTER would mean
+  if (activeScreen === 'menu') startGame();
+  else if (activeScreen === 'dead') startGame(
+    state.run && state.run.monthly ? 'monthly' : state.run && state.run.endless ? 'endless'
+      : state.run && state.run.daily ? 'daily' : undefined);
+  else if (activeScreen === 'victory') startGame();
+  else if (activeScreen === 'pause') resumeGame();
+  else padNavMove(1); // shop, help, boards…: the first press summons the cursor
+}
+
+function handlePadAction(a) {
+  Sound.ensure();
+  if (cinema) { endCinema(); return; } // any button skips the travelling shot
+  if (a === 'start') { pressEscape(); return; }
+  if (activeScreen === 'choice') {
+    if (a === 'left' || a === 'right') padSelMove(a === 'left' ? -1 : 1);
+    // a blind confirm only summons the cursor — choosing an implant unseen
+    // because a button bounced would be theft
+    else if (a === 'confirm') { if (padSel < 0) padSelMove(1); else choose(padSel); }
+    else if (a === 'alt') rerollChoice();
+    return;
+  }
+  if (replay && !paused) { if (a === 'confirm' || a === 'alt') cycleReplaySpeed(); return; }
+  if (activeScreen) { // every other screen, the pause included, walks by cursor
+    if (a === 'up' || a === 'left') padNavMove(-1);
+    else if (a === 'down' || a === 'right') padNavMove(1);
+    else if (a === 'confirm') padNavConfirm();
+    return;
+  }
+  if (a === 'left') doStrike(-1);
+  else if (a === 'right') doStrike(1);
+}
+
+window.addEventListener('gamepadconnected', () => {
+  popBanner('🎮', L('ГЕЙМПАД', 'GAMEPAD'),
+    L('крестовина или бамперы — удары · START — пауза', 'd-pad or bumpers strike · START pauses'));
+});
+
 // Screen buttons
 $('btn-start').addEventListener('click', () => startGame());
 $('btn-endless').addEventListener('click', () => {
   if (state.meta.stats.wins >= 1) startGame('endless');
+});
+$('btn-monthly').addEventListener('click', () => {
+  if (state.meta.stats.wins >= 1) startGame('monthly');
 });
 $('btn-daily').addEventListener('click', () => startGame('daily'));
 $('btn-board').addEventListener('click', () => showScreen('board'));
@@ -1459,10 +1731,13 @@ $('replay-exit').addEventListener('click', () => endReplayView());
 $('replay-badge').addEventListener('pointerdown', e => e.stopPropagation());
 $('replay-exit').addEventListener('pointerdown', e => e.stopPropagation());
 for (const b of document.querySelectorAll('#board-tabs button')) {
-  b.addEventListener('click', () => { boardTab = b.dataset.key; renderBoardScreen(); });
+  b.addEventListener('click', () => { boardTab = b.dataset.key; boardBack = 0; renderBoardScreen(); });
 }
+$('board-prev').addEventListener('click', () => { boardBack++; renderBoardScreen(); });
+$('board-next').addEventListener('click', () => { boardBack = Math.max(0, boardBack - 1); renderBoardScreen(); });
 $('btn-retry').addEventListener('click', () => startGame(
-  state.run && state.run.endless ? 'endless' : state.run && state.run.daily ? 'daily' : undefined));
+  state.run && state.run.monthly ? 'monthly' : state.run && state.run.endless ? 'endless'
+    : state.run && state.run.daily ? 'daily' : undefined));
 $('btn-victory-retry').addEventListener('click', () => startGame());
 $('btn-shop').addEventListener('click', () => { shopReturnTo = 'menu'; showScreen('shop'); });
 $('btn-dead-shop').addEventListener('click', () => { shopReturnTo = 'dead'; showScreen('shop'); });
@@ -1529,7 +1804,7 @@ $('btn-ach-back').addEventListener('click', () => showScreen('menu'));
 $('btn-help-back').addEventListener('click', () => showScreen('menu'));
 $('btn-dead-menu').addEventListener('click', () => { state.run = null; state.phase = 'menu'; showScreen('menu'); $('hud').classList.add('hidden'); });
 $('btn-victory-menu').addEventListener('click', () => { state.run = null; state.phase = 'menu'; showScreen('menu'); $('hud').classList.add('hidden'); });
-$('btn-resume').addEventListener('click', () => { paused = false; hideScreens(); });
+$('btn-resume').addEventListener('click', resumeGame);
 $('btn-quit').addEventListener('click', quitToMenu);
 
 // ---------- Achievements: periodic check and toasts ----------
@@ -1568,6 +1843,49 @@ function checkAch(rawDt) {
   }
 }
 
+// ---------- Zone-entry glints ----------
+// The moment an approacher crosses into reach it catches the light and ticks.
+// Detection reads the simulation state per frame, so it is purely cosmetic:
+// nothing to record, and a ghost's crowd glints exactly like the live one did.
+const zoneSeen = new WeakSet(); // walkers currently inside the zone
+let bossWasIn = false;
+function trackZoneEntries() {
+  const r = state.run;
+  if (!r || state.phase !== 'combat') { bossWasIn = false; return; }
+  const rg = Game.range(state);
+  // The glint belongs to the crosser that makes an empty side hot again —
+  // "a target appeared, react". The queue filing in behind the first one
+  // enters silently: the picture already says the side is busy, and a cue
+  // per crosser turns dense waves into a woodpecker. Revealed holograms
+  // neither receive the cue nor count as occupiers — a real enemy stepping
+  // in past a phantom is still the first thing worth answering.
+  const occupied = { '-1': 0, 1: 0 };
+  for (const e of r.enemies) {
+    if (e.kind === 'proj' || e.dead || !zoneSeen.has(e)) continue;
+    if (e.dist <= rg && !(e.phantom && e.revealed)) occupied[e.side]++;
+  }
+  for (const e of r.enemies) {
+    if (e.kind === 'proj' || e.dead) continue;
+    const inz = e.dist <= rg;
+    if (inz && !zoneSeen.has(e)) {
+      zoneSeen.add(e);
+      if (!(e.phantom && e.revealed) && !occupied[e.side]++) {
+        Scene.glint(e.id);
+        Sound.sfx('zone', 1, sidePan(e.side, e.dist));
+      }
+    } else if (!inz && zoneSeen.has(e)) {
+      zoneSeen.delete(e); // knocked back out — the next crossing may glint again
+    }
+  }
+  const b = r.boss;
+  const bin = !!(b && b.state === 'walk' && b.dist <= rg);
+  if (bin && !bossWasIn) {
+    Scene.glint('boss');
+    Sound.sfx('zone', 0.8, sidePan(b.side, b.dist)); // a heavier crosser, a lower tick
+  }
+  bossWasIn = bin;
+}
+
 // ---------- Loop ----------
 let lastT = 0;
 
@@ -1576,6 +1894,9 @@ function loop(t) {
   const rawDt = Math.min(0.05, (t - lastT) / 1000 || 0);
   lastT = t;
   Debug.frame(rawDt); // before the pause bail-out: the readout stays live on pause
+  // pad presses must land even on pause and menu screens — START unpauses,
+  // A starts a run — so the poll lives above the bail-out
+  for (const a of Pad.poll()) handlePadAction(a);
   if (paused) return;
 
   // hitstop and slow-mo slow the game, but not the screen timers
@@ -1616,6 +1937,26 @@ function loop(t) {
   // the old anti-lurch property: an 88ms warped frame is six whole steps, not
   // one torn jump.)
   //
+  // Resume grace: the world stands frozen while the 3-2-1 ticks. Placed after
+  // the warp so the fast-forward cannot override the freeze; strikes are blocked
+  // in doStrike, so the frozen crowd cannot be farmed.
+  if (resumeT > 0) {
+    resumeT -= rawDt;
+    const rc = $('resume-count');
+    if (resumeT <= 0) rc.classList.add('hidden');
+    else {
+      const n = String(Math.ceil(resumeT / (RESUME_GRACE / 3)));
+      if (rc.textContent !== n) {
+        rc.textContent = n;
+        rc.classList.remove('hidden');
+        rc.style.animation = 'none';
+        void rc.offsetWidth; // restart the pop on each new digit
+        rc.style.animation = '';
+      }
+      dt = 0;
+    }
+  }
+
   // under a cutscene the simulation holds its breath: the intro plays over a
   // combat-phase run, and enemies advancing behind the letterbox would be theft
   if (cinema) simAcc = 0; else simAcc = Math.min(simAcc + dt, 0.35);
@@ -1643,12 +1984,29 @@ function loop(t) {
     }
   }
 
+  trackZoneEntries();
   if (state.phase === 'combat') updateHud();
+  // the peril heartbeat in the palms: one heavy pulse a second while the hero
+  // stands one hit from death — pairs with the red breathing and the choked mix
+  if (state.phase === 'combat' && !replay && state.run && state.run.hp === 1) {
+    perilBeatT -= rawDt;
+    if (perilBeatT <= 0) { perilBeatT = 0.95; Pad.impact(0.35, 70); }
+  } else perilBeatT = 0;
   if (!replayActive) checkAch(rawDt);
-  Scene.render(state, dt);
+  Scene.render(state, dt, rawDt);
 }
 
 // ---------- Startup ----------
+// The browser unlocks audio only on a user gesture: the first press of any
+// kind wakes the context, and if we are still standing on the menu, its
+// ambient set starts right then instead of waiting for a run.
+const wakeMenuMusic = () => {
+  Sound.ensure();
+  if (state.phase === 'menu' && activeScreen === 'menu') startMenuMusic();
+};
+document.addEventListener('pointerdown', wakeMenuMusic);
+document.addEventListener('keydown', wakeMenuMusic);
+
 applyLang();
 $('game-version').textContent = 'v' + Game.VERSION;
 showScreen('menu');

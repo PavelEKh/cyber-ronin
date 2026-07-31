@@ -452,6 +452,51 @@ body::after {
 }
 #reset-warn { color: #ff8da0; text-align: center; }
 
+/* the boards' archive walker: ‹ date › under the dated tabs */
+#board-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 10px 0 2px;
+}
+#board-nav.hidden { display: none; }
+#board-nav-label {
+  min-width: 110px;
+  text-align: center;
+  color: var(--dim);
+  letter-spacing: 2px;
+  font-size: 14px;
+}
+#board-nav .cyber-btn.mini { min-width: 44px; }
+
+/* resume grace: the 3-2-1 over the frozen world after a combat pause */
+#resume-count {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 28; /* over the scene, under the pause overlay it just left */
+  pointer-events: none;
+  font-size: 110px;
+  font-weight: 800;
+  color: var(--cyan);
+  text-shadow: 0 0 34px rgba(38, 214, 255, 0.65), 0 0 8px rgba(38, 214, 255, 0.9);
+  animation: count-pop 0.3s ease-out;
+}
+#resume-count.hidden { display: none; }
+@keyframes count-pop {
+  from { transform: scale(1.7); opacity: 0.1; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* the gamepad cursor: works on any button — cyber, shop buy, board tab */
+button.pad-focus {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+  box-shadow: 0 0 18px rgba(38, 214, 255, 0.4);
+}
 .cyber-btn:disabled { opacity: 0.35; cursor: default; box-shadow: none; }
 .cyber-btn:disabled:hover { background: rgba(16, 14, 36, 0.7); }
 /* endless mode: violet accent to stand apart from a regular run */
@@ -481,7 +526,8 @@ body::after {
   text-align: center;
   transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
 }
-.implant-card:hover {
+.implant-card:hover,
+.implant-card.pad-sel { /* the gamepad cursor borrows the hover look */
   transform: translateY(-4px);
   border-color: var(--pink);
   box-shadow: 0 0 22px rgba(255, 45, 120, 0.35);

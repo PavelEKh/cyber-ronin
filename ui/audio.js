@@ -264,6 +264,12 @@ const Sound = (() => {
         tone('sawtooth', 70, 130, 0.4, 0.1);
         break;
       case 'stance':  noiseHit(0.12, 4200, 2200, 0.25, 8); tone('triangle', 1200, 900, 0.1, 0.15); break;
+      case 'zone': // the gate ticks: an empty side got its first crosser — main.js
+        // fires this only for the entry that demands a reaction, so the tick
+        // stays rare and always means something; quiet on purpose regardless
+        noiseHit(0.025, 6800 * j(), 4200, 0.11, 8);
+        tone('triangle', 2093 * p, 1900, 0.045, 0.06);
+        break;
       case 'open': // a glint on the blade: a single high ping
         tone('triangle', 2793, 2700, 0.14, 0.2);
         noiseHit(0.05, 8000, 5000, 0.18, 8);
@@ -336,6 +342,9 @@ const Sound = (() => {
         tone('sine', 110, 55, 0.16, 0.3, 0.04);
         break;
       case 'ui':      tone('triangle', 700, 900, 0.06, 0.15); break;
+      case 'tally': // the results reel: one soft click per counted step
+        tone('square', 1300 * p, 1250 * p, 0.02, 0.035);
+        break;
       case 'boss':    tone('sawtooth', 55, 38, 1.4, 0.42); tone('sawtooth', 82, 58, 1.4, 0.3, 0.12); noiseHit(1.0, 200, 60, 0.25, 1); break;
       case 'qtestart': // duel: the shing of a drawn blade and a low stance pulse
         noiseHit(0.2, 5000, 9000, 0.25, 3);
@@ -475,6 +484,14 @@ const Sound = (() => {
   // An alternative tail for A' — the climb sometimes turns into a fall. One of
   // the per-cycle dice below picks which tail this pass through the form takes.
   const TAIL_ALT = [ST.b3, ST.p4, ST.b3, ST.b2,  ST.r, ST.b7 * 0.5, ST.b2, ST.r];
+  // The second arp bank: same nerves, different contours. A per-cycle die picks
+  // the bank, so the figure under a long fight keeps trading shapes.
+  const ARPS_B = [
+    [ST.b2, ST.r,  ST.p5, ST.p4],
+    [ST.p4, ST.b3, ST.b6, 2],
+    [ST.b6, ST.p5, ST.b2 * 2, ST.b7],
+    [ST.b2, ST.r,  ST.p5, ST.p4],
+  ];
   // The dice: a stateless hash of the cycle number. The same cycle always rolls
   // the same way (the scheduler may revisit a step), different cycles differ.
   const roll = (cyc, n, mod) => (((cyc * 2654435761 + n * 40503) >>> 13) % mod);
@@ -590,18 +607,38 @@ const Sound = (() => {
     const hatShift = roll(cyc, 3, 2) === 1;     // the hat accent moves off-beat
     const bellTurn = roll(cyc, 4, 4) === 0;     // a rare belled echo of the turnaround
     const padHigh = roll(cyc, 5, 2) === 1;      // bII pad grows a high shimmer
+    const bassDrop = roll(cyc, 9, 3) === 0;     // B's bass walks an octave down — a verse-like pass
+    const arpSet = roll(cyc, 8, 2) === 1 ? ARPS_B : ARPS; // which figure bank this pass runs
+    // The menu plays the postcard cut of the same material: pad, slow bass and
+    // the rare bell — no drums, no arps, whatever the tier says. And in combat
+    // roughly one pass in four BREATHES: the groove strips to the bed and the
+    // form inhales — the single cheapest cure for an arrangement on repeat.
+    const menu = musicAct === 'menu';
+    const breathe = !menu && roll(cyc, 6, 4) === 0;
     // --- tier 0: the bed. Always playing, so the track never drops to silence.
-    // kick — a muffled hit on every beat
-    if (s % 8 === 0) tone('sine', 120, 42, 0.14, 0.4, w, musicBus);
-    // bass in eighths along the Phrygian period; A' may take its other tail
-    if (s % 2 === 0) {
+    // kick — a muffled hit on every beat (a breathing pass keeps only bar one)
+    if (s % 8 === 0 && !menu && (!breathe || s32 === 0)) tone('sine', 120, 42, 0.14, 0.4, w, musicBus);
+    // bass in eighths along the Phrygian period; A' may take its other tail —
+    // the menu walks it in half-notes instead, soft and unhurried
+    if (menu) {
+      if (s % 8 === 0) {
+        const m = BASSLINE[(s / 2) | 0];
+        tone('sawtooth', r * 2 * m, r * 2 * m, 0.5, 0.07, w, musicBus);
+      }
+      // the postcard's own rare bell over the turnaround
+      if (bellTurn && s >= CYCLE - 8 && s % 4 === 0) {
+        const bm = BASSLINE[(s / 2) | 0];
+        tone('sine', r * 8 * bm, r * 8 * bm, 0.4, 0.035, w, musicBus);
+      }
+    } else if (s % 2 === 0) {
       const bi = (s / 2) | 0;
       const m = altTail && bi >= 24 && bi < 32 ? TAIL_ALT[bi - 24] : BASSLINE[bi];
-      tone('sawtooth', r * 2 * m, r * 2 * m, 0.15, 0.15, w, musicBus);
+      const oct = bassDrop && sec === 2 ? 0.5 : 1; // the departure sometimes broods low
+      tone('sawtooth', r * 2 * m * oct, r * 2 * m * oct, 0.15, breathe ? 0.10 : 0.15, w, musicBus);
     }
     // --- tier 1: the groove locks in. Hats in sixteenths, meaner off-beat,
     // a snare on the backbeat and the ghost kick before the second beat.
-    if (tier >= 1) {
+    if (tier >= 1 && !menu && !breathe) {
       if (s % 2 === 1) noiseHit(0.02, 9000, 7000, s % 4 === (hatShift ? 1 : 3) ? 0.05 : 0.028, 9, w);
       if (s % 16 === 8) noiseHit(0.09, 1800, 600, 0.11, 1.5, w);
       if (s32 === 22) tone('sine', 100, 45, 0.09, 0.2, w, musicBus);
@@ -619,14 +656,14 @@ const Sound = (() => {
     }
     // --- tier 2: a nervous arpeggiator in each cell's second bar, its figure
     // shifting with the section's harmony
-    if (tier >= 2 && s32 >= 16 && s % 2 === 1) {
+    if (tier >= 2 && !menu && !breathe && s32 >= 16 && s % 2 === 1) {
       const lift = arpLift && sec === 2 ? 2 : 1; // B sometimes runs an octave up
-      const arp = ARPS[sec][((s32 - 16) / 2 | 0) % 4] * lift;
+      const arp = arpSet[sec][((s32 - 16) / 2 | 0) % 4] * lift;
       tone('triangle', r * 16 * arp, r * 16 * arp, 0.06, arpLift && sec === 2 ? 0.036 : 0.045, w, musicBus);
     }
     // --- tier 3: deep flow. A counter-arp an octave up, running against the
     // first one, and a shimmer of steel on the downbeat of each bar.
-    if (tier >= 3) {
+    if (tier >= 3 && !menu && !breathe) {
       if (s % 2 === 1) {
         const c = ARPS2[sec][((s % 32 - 1) / 2 | 0) % 4];
         tone('triangle', r * 32 * c, r * 32 * c, 0.05, 0.03, w, musicBus);
@@ -640,11 +677,13 @@ const Sound = (() => {
       tone('sine', 58, 36, 0.13, 0.4, w + 0.17, musicBus);
     }
     // pad: one chord per section — i, bVI, bII, i — tension that finally MOVES
+    // (in the menu the pad IS the body, so it comes forward a little)
     if (s32 === 0) {
       const ch = PADS[sec];
-      tone('triangle', r * 8 * ch[0], r * 8 * ch[0], 2.2, 0.05, w, musicBus);
-      tone('triangle', r * 8 * ch[1], r * 8 * ch[1], 2.2, 0.04, w, musicBus);
-      tone('sawtooth', r * 4 * ch[2], r * 4 * ch[2], 2.2, 0.022, w, musicBus);
+      const pg = menu ? 1.4 : 1;
+      tone('triangle', r * 8 * ch[0], r * 8 * ch[0], 2.2, 0.05 * pg, w, musicBus);
+      tone('triangle', r * 8 * ch[1], r * 8 * ch[1], 2.2, 0.04 * pg, w, musicBus);
+      tone('sawtooth', r * 4 * ch[2], r * 4 * ch[2], 2.2, 0.022 * pg, w, musicBus);
       // some passes let the bII chord shimmer at the top — the form's darkest
       // corner catching a little light
       if (padHigh && sec === 2) {
@@ -709,9 +748,13 @@ const Sound = (() => {
     const murmur = mk('bandpass', 420, 0.9, 0.05);
     lfoTo(murmur.gain, 0.11, 0.02);
     lfoTo(murmur.gain, 0.047, 0.015);
-    // the grill: thin hot noise with its own faster crackle-wobble
-    const sizzle = mk('highpass', 5200, 0.7, 0.012);
-    lfoTo(sizzle.gain, 1.7, 0.008);
+    // the grill: thin hot noise with a crackle-wobble. Same incommensurate-LFO
+    // trick as the murmur — a single 1.7 Hz tremolo made the hiss pulse with a
+    // metronome's regularity, and a REGULAR "shh… shh" reads as a broom
+    // sweeping, not fat on steel. Two beating rates never repeat a pattern.
+    const sizzle = mk('highpass', 5200, 0.7, 0.010);
+    lfoTo(sizzle.gain, 2.9, 0.0045);
+    lfoTo(sizzle.gain, 0.53, 0.0035);
     // the vendor's bell: rare, quiet, always the same two notes — a real bell
     // is a habit, not a melody
     const ding = () => {
@@ -733,6 +776,12 @@ const Sound = (() => {
     ambTimer = setInterval(() => { if (Math.random() < 0.4) ding(); }, 9000);
   }
 
+  // Each location keeps its own pulse — one number of variety that costs
+  // nothing and stops six acts from blurring into one endless track. The menu
+  // idles far below any fight. The debug BPM slider still overrides between
+  // acts; an act change simply re-tunes it.
+  const ACT_BPM = { street: 122, market: 132, train: 127, ship: 112, server: 134, garden: 106, menu: 92 };
+
   function startMusic(actId) {
     if (!ctx) return;
     stopMusic();
@@ -740,6 +789,14 @@ const Sound = (() => {
     musicRoot = ACT_ROOTS[actId] || 41.2;
     musicAct = actId;
     setSpace(actId);
+    FLAGS.bpm = ACT_BPM[actId] || 120;
+    // a fresh set opens clean: whatever the pause or a drop left on the
+    // filter and the duck stage must not leak into the next track
+    const t0r = ctx.currentTime;
+    musicFx.frequency.cancelScheduledValues(t0r);
+    musicFx.frequency.setValueAtTime(restFreq(), t0r);
+    duckGain.gain.cancelScheduledValues(t0r);
+    duckGain.gain.setValueAtTime(1, t0r);
     musicStep = 0;
     musicT0 = ctx.currentTime + 0.05; // a beat of headroom before the first step
     musicTimer = setInterval(() => {
@@ -759,6 +816,39 @@ const Sound = (() => {
     peril = false;
   }
 
+  // Which set is on the decks — main.js uses this to start the menu music
+  // exactly once instead of restarting it on every visit to a menu screen.
+  const playingAct = () => (musicTimer ? musicAct : null);
+
+  // The menu postcard changed location: the ambient set follows — new root,
+  // new room, the market's own murmur when the market slides by. The chords
+  // simply take the new key on their next bar: a slow modulation, no restart.
+  function setMenuAct(actId) {
+    if (!ctx || musicAct !== 'menu' || !musicTimer) return;
+    musicRoot = ACT_ROOTS[actId] || 41.2;
+    setSpace(actId);
+    startAmbience(actId);
+  }
+
+  // The pause screen holds the track underwater — still moving, no longer
+  // demanding — and lets it back up on resume. The peril clamp survives:
+  // the release ramps to restFreq(), not to a hardcoded open value.
+  function pauseMusic(on) {
+    if (!ctx || !musicTimer) return;
+    const t = ctx.currentTime, f = musicFx.frequency, g = duckGain.gain;
+    f.cancelScheduledValues(t);
+    f.setValueAtTime(Math.max(40, f.value), t);
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    if (on) {
+      f.exponentialRampToValueAtTime(300, t + 0.3);
+      g.linearRampToValueAtTime(0.35, t + 0.3);
+    } else {
+      f.exponentialRampToValueAtTime(restFreq(), t + 0.6);
+      g.linearRampToValueAtTime(1, t + 0.6);
+    }
+  }
+
   // The grid strikes snap to, in seconds. Coarser is more audible and more
   // laggy, and the two trade off directly: a quarter at 120bpm is a 500ms grid,
   // so a note can wait half a second. A 32nd is only 62ms — under the threshold
@@ -774,6 +864,6 @@ const Sound = (() => {
     return (g - (elapsed % g)) % g;
   }
 
-  return { ensure, sfx, note, setTier, rung, startMusic, stopMusic, flags, setFlag,
-           tier: musicTier, gridSec, duckMusic, dropMusic, setPeril, setSpace };
+  return { ensure, sfx, note, setTier, rung, startMusic, stopMusic, playingAct, setMenuAct, pauseMusic,
+           flags, setFlag, tier: musicTier, gridSec, duckMusic, dropMusic, setPeril, setSpace };
 })();

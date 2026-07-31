@@ -45,6 +45,9 @@
 <!-- The replay viewer's banner: always on screen while a ghost is playing.
      The badge itself is the speed control (tap/click cycles 1×/2×/4×),
      the ✕ beside it leaves the ghost — phones have no SPACE and no ESC. -->
+<!-- resume grace: the 3-2-1 over a frozen world after a combat pause -->
+<div id="resume-count" class="hidden"></div>
+
 <div id="replay-badge" class="hidden">▶ REPLAY · <span id="replay-badge-note">ESC</span></div>
 <button id="replay-exit" class="hidden">✕</button>
 
@@ -70,6 +73,7 @@
     <div class="menu-buttons">
       <button id="btn-start" class="cyber-btn primary" data-i18n="btnStart">⚔ В БОЙ</button>
       <button id="btn-endless" class="cyber-btn" data-i18n="btnEndless">♾ БЕСКОНЕЧНОСТЬ</button>
+      <button id="btn-monthly" class="cyber-btn" data-i18n="btnMonthly">🌙 СИД МЕСЯЦА</button>
       <button id="btn-daily" class="cyber-btn" data-i18n="btnDaily">🗓 СИД ДНЯ</button>
       <button id="btn-board" class="cyber-btn hidden" data-i18n="btnBoard">🏅 ДОСКА ДНЯ</button>
       <button id="btn-shop" class="cyber-btn" data-i18n="btnShop">💾 ПРОШИВКА</button>
@@ -166,8 +170,15 @@
     <div class="screen-sub" data-i18n="boardSub">сид дня · кампания · бесконечность</div>
     <div id="board-tabs">
       <button data-key="daily" class="cyber-btn mini" data-i18n="tabDaily">СИД ДНЯ</button>
+      <button data-key="monthly" class="cyber-btn mini" data-i18n="tabMonthly">МЕСЯЦ</button>
       <button data-key="campaign" class="cyber-btn mini" data-i18n="tabCampaign">КАМПАНИЯ</button>
       <button data-key="endless" class="cyber-btn mini" data-i18n="tabEndless">БЕСКОНЕЧНОСТЬ</button>
+    </div>
+    <!-- the archive walker: past daily seeds (and past months) stay readable -->
+    <div id="board-nav" class="hidden">
+      <button id="board-prev" class="cyber-btn mini">‹</button>
+      <div id="board-nav-label"></div>
+      <button id="board-next" class="cyber-btn mini">›</button>
     </div>
     <div id="menu-board" class="daily-board"></div>
     <div class="menu-buttons"><button id="btn-board-back" class="cyber-btn" data-i18n="btnBack">НАЗАД</button></div>
@@ -210,6 +221,7 @@
 <script src="ui/sprites.js"></script>
 <script src="ui/bgcache.js"></script>
 <script src="ui/scene.js"></script>
+<script src="ui/gamepad.js"></script>
 <script src="ui/debug.js"></script>
 <script src="ui/main.js"></script>
 </body>

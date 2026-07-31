@@ -55,9 +55,13 @@ const Board = (() => {
     return res.json();
   }
 
+  // a monthly board key ('YYYY-MM') — the daily's long-form sibling
+  const isMonth = key => /^\d{4}-\d{2}$/.test(key);
+
   const boardTitle = key =>
     key === 'endless' ? L('ДОСКА БЕСКОНЕЧНОСТИ', 'ENDLESS BOARD') :
     key === 'campaign' ? L('ДОСКА КАМПАНИИ', 'CAMPAIGN BOARD') :
+    isMonth(key) ? L('ТАБЛИЦА МЕСЯЦА', 'BOARD OF THE MONTH') :
     L('ТАБЛИЦА ДНЯ', 'BOARD OF THE DAY');
 
   // ---------- Rendering ----------
@@ -87,8 +91,8 @@ const Board = (() => {
         name.appendChild(div('tag', `#${row.tag}`));
       }
       r.appendChild(name);
-      // the endless board counts waves; the others show how deep the run went
-      r.appendChild(div('detail', key === 'endless'
+      // the endless-family boards count waves; the others show how deep the run went
+      r.appendChild(div('detail', key === 'endless' || isMonth(key)
         ? Game.F('волна {n}', 'wave {n}', { n: (row.act - 1) * Game.WAVES_PER_ACT + row.wave })
         : (row.victory ? '✓' : `${L('акт', 'act')} ${row.act}`)));
       r.appendChild(div('score', Game.fmt(row.score)));
@@ -183,6 +187,20 @@ const Board = (() => {
         },
       };
     }
+    if (r.monthly) {
+      const m = s.meta.monthly;
+      if (!m || !m.done) return null;
+      // the tape rides along only when THIS run holds the month's best
+      const best = (m.act - 1) * Game.WAVES_PER_ACT + m.wave;
+      const mine = (r.act - 1) * Game.WAVES_PER_ACT + r.wave;
+      return {
+        key: m.month,
+        entry: {
+          score: m.score, act: Math.max(1, m.act), wave: Math.max(1, m.wave), victory: false,
+          replay: mine === best && r.score === m.score ? tape : undefined,
+        },
+      };
+    }
     return {
       key: r.endless ? 'endless' : 'campaign',
       entry: { score: r.score, act: r.act, wave: r.wave, victory: s.phase === 'victory', replay: tape || undefined },
@@ -257,6 +275,7 @@ const Board = (() => {
       // an empty throne is itself an invitation
       container.appendChild(div('champ-title', '👑 ' + L('СИД ДНЯ', 'DAILY SEED')));
       container.appendChild(div('champ-empty', L('трон пуст — займи его первым', 'the throne is empty — take it first')));
+      container.appendChild(div('champ-detail', Game.F('играли сегодня: {n}', 'played today: {n}', { n: data.total })));
       const act = div('champ-actions');
       act.appendChild(champBtn('cyber-btn mini primary', L('⚔ ЗАНЯТЬ ТРОН', '⚔ TAKE THE THRONE'), onChallenge));
       container.appendChild(act);
@@ -270,7 +289,7 @@ const Board = (() => {
     container.appendChild(div('champ-score', Game.fmt(top.score)));
     container.appendChild(div('champ-detail',
       (top.victory ? '✓ ' + L('полный проход', 'full clear') : `${L('акт', 'act')} ${top.act}`) +
-      ` · ${Game.F('игроков: {n}', 'players: {n}', { n: data.total })}` +
+      ` · ${Game.F('играли сегодня: {n}', 'played today: {n}', { n: data.total })}` +
       (data.rank && !top.me ? ` · ${L('ты', 'you')} #${data.rank}` : '')));
     const act = div('champ-actions');
     // the champion's tape rides the same route as a board row's ▶

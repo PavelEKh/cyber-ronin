@@ -9,14 +9,34 @@
 (() => {
 
 // ---------- Seeded random ----------
-// mulberry32 over state.rngState: waves and implant offers are seed-deterministic,
-// which gives reproducible tests and an honest balance simulation.
+// Two mulberry32 streams with one contract between them:
+//   rnd(s)      — COMBAT noise over state.rngState: knocks, rain sides, Warden
+//                 chains, gusts. Deterministic given the seed AND the actions
+//                 (all a replay needs) — but chaotically sensitive to play, so
+//                 across daily ATTEMPTS these reaction tests stay effectively
+//                 fresh: a chain learned on attempt one won't repeat on two.
+//                 That unpredictability is a design decision (2026-07-31) —
+//                 do not move these draws onto the plan stream.
+//   rndPlan(r)  — the PLAN stream over run.planRng: wave composition, mutator
+//                 rolls and implant offers. Deterministic given the seed and
+//                 the pick history ALONE — combat noise must not touch it,
+//                 or two daily runs on the shared seed would drift apart the
+//                 moment one player knocked a punk the other let through.
 function rnd(s) {
   let t = (s.rngState = (s.rngState + 0x6D2B79F5) | 0);
   t = Math.imul(t ^ (t >>> 15), t | 1);
   t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
+
+function rndPlan(r) {
+  if (r.planRng == null) r.planRng = 1; // a pre-1.1 mid-run save joins the stream here
+  let t = (r.planRng = (r.planRng + 0x6D2B79F5) | 0);
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
 
 // ---------- Language ----------
 // Default is ru: Node tests and the simulation work unchanged. The UI calls setLang.
@@ -83,13 +103,20 @@ const STEP = 1 / 60;
 // rejected loudly instead. Bumping the epoch retires stored replays (board
 // ROWS survive). The full version shows in the menu corner.
 const VERSION_MAJOR = 1;
-const VERSION_REPLAY = 0;
-const VERSION_COSMETIC = 8; // 1.0.8: the day's champion stands framed on the menu — the crown, the tape, the challenge
+const VERSION_REPLAY = 1; // 1.1: the early-press buffer — a swing at an empty zone waits for its target
+const VERSION_COSMETIC = 0;
 const VERSION = `${VERSION_MAJOR}.${VERSION_REPLAY}.${VERSION_COSMETIC}`;
 const REPLAY_EPOCH = `${VERSION_MAJOR}.${VERSION_REPLAY}`;
 
 // ---------- Combat constants ----------
 const BASE_RANGE = 150;   // base strike range
+// The early-press buffer: a swing that found the zone empty hangs in the air
+// this long, and lands the moment its target crosses into reach. Rhythm-game
+// forgiveness — the difference between "hard but fair" and "the game cheated
+// me out of a frame". One queued press per side; a second press on the same
+// side while one waits is spam and flubs immediately (see strikeCore), so the
+// mash exploit — hold a permanent buffer, never eat a miss — cannot exist.
+const PRESS_BUFFER = 5 * STEP; // ~83ms, tuned to feel like the press "counted"
 const HIT_DIST = 34;      // an enemy this close lands a hit on the hero
 const SPAWN_DIST = 860;   // where enemies spawn
 // Where a knocked punk lands on the other side: ON THE EDGE of the strike
@@ -351,8 +378,9 @@ const IMPLANTS = [
     en: { name: 'Reflex Chip',      desc: 'Miss penalty is half as long' } },
   { id: 'berserk', icon: '💀', name: 'Протокол «Казнь»',  desc: `Каждый ${EXEC_EVERY}-й удар убивает любого врага`, stack: 1,
     en: { name: 'Protocol EXECUTE', desc: `Every ${EXEC_EVERY}th hit kills any enemy` } },
-  { id: 'magnet',  icon: '🧲', name: 'Кредитный магнит',  desc: '+30% кредитов с врагов',                      stack: 2,
-    en: { name: 'Credit Magnet',    desc: '+30% credits from kills' } },
+  // 2026-07-31: the Credit Magnet (+30% credits) is retired — a passive number
+  // that merely duplicated the shop's mcred firmware. Its slot in the pool is
+  // deliberately left open until a trigger mechanic worth pressing arrives.
   { id: 'guard',   icon: '🔌', name: 'Аварийный конденсатор', desc: 'Смертельный удар оставляет 1 броню и отбрасывает всех (раз за забег)', stack: 1,
     en: { name: 'Emergency Capacitor', desc: 'A lethal hit leaves 1 armor and repels the field (once per run)' } },
   { id: 'jam',     icon: '📵', name: 'Глушилка «Помехи»', desc: 'Метатели замахиваются дольше, все сюрикены летят на 15% медленнее', stack: 2,
@@ -611,6 +639,15 @@ function normalizeState(saved) {
         victory: !!d.victory, done: !!d.done,
       };
     }
+    // the monthly ledger, by the same rule
+    const mo = saved.meta.monthly;
+    if (mo && typeof mo.month === 'string') {
+      const num = v => (Number.isFinite(v) ? Math.max(0, v) : 0);
+      s.meta.monthly = {
+        month: mo.month, score: num(mo.score), act: num(mo.act), wave: num(mo.wave),
+        done: !!mo.done,
+      };
+    }
     // story, id by id: an old save simply has none of it, and a broken one
     // cannot smuggle in fragments that no longer exist
     const story = saved.meta.story;
@@ -636,14 +673,14 @@ const implantCount = (s, id) => (s.run && s.run.implants[id]) || 0;
 // the day compares hands. Ended phases see real levels again — the shop on the
 // death screen must show and charge the truth, not the freeze.
 const metaLvl = (s, id) =>
-  (s.run && s.run.daily && (s.phase === 'combat' || s.phase === 'choice'))
+  (s.run && (s.run.daily || s.run.monthly) && (s.phase === 'combat' || s.phase === 'choice'))
     ? 0 : (s.meta.upgrades[id] || 0);
 
 function range(s)      { return BASE_RANGE * (1 + 0.15 * implantCount(s, 'range')) * (1 + 0.06 * metaLvl(s, 'mrange')); }
 function cryoMult(s)   { return Math.pow(0.92, implantCount(s, 'cryo')); }
 function stunTime(s)   { return BASE_STUN * Math.pow(0.5, implantCount(s, 'reflex')) * (1 - 0.15 * metaLvl(s, 'mstun')); }
 function maxHp(s)      { return BASE_HP + metaLvl(s, 'mhp') + implantCount(s, 'hp'); }
-function creditMult(s) { return (1 + 0.3 * implantCount(s, 'magnet')) * (1 + 0.15 * metaLvl(s, 'mcred')); }
+function creditMult(s) { return 1 + 0.15 * metaLvl(s, 'mcred'); }
 function chainEvery(s) { const c = implantCount(s, 'chain'); return c ? (c >= 2 ? CHAIN_EVERY2 : CHAIN_EVERY1) : 0; }
 function berserkOn(s)  { return implantCount(s, 'berserk') > 0; }
 function qteTimerMult(s) { return 1 + HACK_TIMER * implantCount(s, 'hack'); }
@@ -684,6 +721,29 @@ function recordDaily(s, r, victory) {
   Object.assign(d, { score: r.score, act: r.act, wave: r.wave, victory: !!victory, done: true });
 }
 
+// ---------- Monthly seed ----------
+// The daily's long-form sibling: one shared ENDLESS seed per calendar month
+// ('YYYY-MM', UTC like the daily). Firmware frozen the same way — the month's
+// ladder measures how deep the hands go, not the wallet. The 'm:' prefix keeps
+// a month's hash from ever colliding with some date's.
+function startMonthly(s, monthStr) {
+  s.rngState = dailySeed('m:' + monthStr);
+  startRun(s, 'monthly');
+  if (!s.meta.monthly || s.meta.monthly.month !== monthStr) {
+    s.meta.monthly = { month: monthStr, score: 0, act: 1, wave: 1, done: false };
+  }
+  return true;
+}
+// The month's ledger keeps the deepest run; equal depth falls to score —
+// the exact tie rule the worker's endless metric applies.
+function recordMonthly(s, r) {
+  const m = s.meta.monthly;
+  if (!r.monthly || r.cheated || !m) return;
+  const oldWaves = (m.act - 1) * WAVES_PER_ACT + m.wave;
+  if (m.done && (endlessWave(r) < oldWaves || (endlessWave(r) === oldWaves && r.score <= m.score))) return;
+  Object.assign(m, { score: r.score, act: r.act, wave: r.wave, done: true });
+}
+
 // ---------- Difficulty ----------
 function speedMult(run)  { return 1 + (run.act - 1) * 0.22 + (run.wave - 1) * 0.07; }
 function waveSize(run)   { return Math.min(40, 10 + (run.act - 1) * 7 + (run.wave - 1) * 4); }
@@ -700,9 +760,11 @@ function startRun(s, mode) {
   s.meta.stats.runs++;
   s.run = {
     act: 1, wave: 1,
+    planRng: (seed ^ 0x9E3779B9) | 0, // the plan stream's own state — see rndPlan
     ticks: 0, // completed fixed steps — the replay timeline's integer clock
-    endless: mode === 'endless',
+    endless: mode === 'endless' || mode === 'monthly', // the monthly IS an endless run
     daily: mode === 'daily',
+    monthly: mode === 'monthly',
     hp: 0, // set below once run exists (maxHp reads implants from run)
     combo: 0, bestCombo: 0, kills: 0, score: 0, credits: 0,
     implants: {},   // implant id -> times taken
@@ -710,6 +772,7 @@ function startRun(s, mode) {
     chainCombo: 0,  // hits toward the Arc Discharge bolt: accumulate after install, reset with the combo
     lastStrikeSide: 0, // side of the previous press — the adapter's shield "reads" it
     twinPress: null,   // first press of a twin chord: {pair, side, at}
+    buf: [],           // early presses waiting for a target: {side, t, prev} — see PRESS_BUFFER
     worldX: 0,         // the hero's accumulated world travel — drives background parallax in the UI
     stun: 0, time: 0,
     enemies: [], queue: [], waveT: 0, nextId: 1,
@@ -735,7 +798,7 @@ function startRun(s, mode) {
   for (let i = metaLvl(s, 'mstart'); i > 0; i--) {
     const pool = IMPLANTS.filter(im => implantCount(s, im.id) < im.stack);
     if (!pool.length) break;
-    const im = pool[Math.floor(rnd(s) * pool.length)];
+    const im = pool[Math.floor(rndPlan(s.run) * pool.length)];
     s.run.implants[im.id] = (s.run.implants[im.id] || 0) + 1;
   }
   s.run.hp = maxHp(s); // after the loadout — a granted battery raises the start
@@ -754,7 +817,7 @@ function startRun(s, mode) {
 function weightedPick(s, weights) {
   let total = 0;
   for (const k in weights) total += weights[k];
-  let roll = rnd(s) * total;
+  let roll = rndPlan(s.run) * total; // wave composition rides the plan stream
   for (const k in weights) { roll -= weights[k]; if (roll <= 0) return k; }
   return 'drone';
 }
@@ -777,12 +840,12 @@ function buildWave(s) {
   // mutator roll: from act 2, never on the Warden's wave; tests may force one
   r.mutator = null;
   if (r.forceMutator !== undefined) r.mutator = r.forceMutator;
-  else if (r.act >= 2 && !r.bossPending && rnd(s) < MUTATOR_CHANCE) {
+  else if (r.act >= 2 && !r.bossPending && rndPlan(r) < MUTATOR_CHANCE) {
     // curated pairs join the pool only deep into endless; the campaign pool
     // keeps the base entries in table order, so its rnd mapping is unchanged
     const pool = r.endless && endlessWave(r) >= MUT_PAIR_WAVE
       ? MUTATORS : MUTATORS.filter(m => !m.combo);
-    r.mutator = pool[Math.floor(rnd(s) * pool.length)].id;
+    r.mutator = pool[Math.floor(rndPlan(r) * pool.length)].id;
   }
   r.rainT = 2.4; // STEEL RAIN: countdown to the first stray shuriken
   const sm = speedMult(r) * cryoMult(s) * mutSpeed(r);
@@ -804,12 +867,12 @@ function buildWave(s) {
   const lastArr = { '-1': -Infinity, '1': -Infinity };
   let lastAny = -Infinity; // last arrival from either side
   let arr = 0; // arrival timeline; the whole wave is shifted to a normal start at the end
-  let side = rnd(s) < 0.5 ? -1 : 1;
+  let side = rndPlan(r) < 0.5 ? -1 : 1;
   let sinceLull = 0; // enemies since the last breather
   r.waveTotal = size; // actual wave size (mutators change it) — the nanovampirism threshold
   for (let i = 0; i < size; i++) {
     // ragged rhythm: every 5–8 enemies — a breather pause, the crowd comes in bursts
-    if (++sinceLull >= 5 + Math.floor(rnd(s) * 4)) {
+    if (++sinceLull >= 5 + Math.floor(rndPlan(r) * 4)) {
       arr += spawnGap(r) * 2.2 * gapMul;
       sinceLull = 0;
     }
@@ -818,12 +881,12 @@ function buildWave(s) {
       // twins come as a mirrored pair on both sides simultaneously (2 slots)
       if (i >= size - 1) type = 'drone'; // not enough room for a pair
       else {
-        arr += spawnGap(r) * (0.75 + rnd(s) * 0.5) * gapMul;
+        arr += spawnGap(r) * (0.75 + rndPlan(r) * 0.5) * gapMul;
         const arrT = Math.max(arr, lastArr['-1'] + minGap, lastArr['1'] + minGap, lastAny + anyGap);
         lastArr['-1'] = lastArr['1'] = arrT;
         lastAny = arrT;
         if (arrT > arr) arr = arrT;
-        const dist = SPAWN_DIST * (0.92 + rnd(s) * 0.16);
+        const dist = SPAWN_DIST * (0.92 + rndPlan(r) * 0.16);
         const travel = (dist - zone) / (ENEMY_TYPES.twin.speed * sm);
         q.push({ at: arrT - travel, arr: arrT, type: 'twin', side: -1, dist, pair: i });
         q.push({ at: arrT - travel, arr: arrT, type: 'twin', side: 1, dist, pair: i });
@@ -832,16 +895,16 @@ function buildWave(s) {
       }
     }
     let thisSide, thisArr;
-    if (i > 0 && q.length && rnd(s) < pairChance) {
+    if (i > 0 && q.length && rndPlan(r) < pairChance) {
       // pincers: same arrival, opposite side — a deliberate test
       const prev = q[q.length - 1];
       thisSide = -prev.side;
       thisArr = prev.arr;
     } else {
       // the side switches more often than it stays — no single-button turkey shoot
-      side = rnd(s) < 0.62 ? -side : side;
+      side = rndPlan(r) < 0.62 ? -side : side;
       thisSide = side;
-      arr += spawnGap(r) * (0.75 + rnd(s) * 0.5) * gapMul;
+      arr += spawnGap(r) * (0.75 + rndPlan(r) * 0.5) * gapMul;
       thisArr = arr;
     }
     // solvability guarantee: per side no denser than minGap; combined no denser than anyGap
@@ -851,10 +914,10 @@ function buildWave(s) {
     lastArr[thisSide] = thisArr;
     lastAny = Math.max(lastAny, thisArr);
     if (thisArr > arr) arr = thisArr;
-    const dist = SPAWN_DIST * (0.92 + rnd(s) * 0.16);
+    const dist = SPAWN_DIST * (0.92 + rndPlan(r) * 0.16);
     const travel = (dist - zone) / (ENEMY_TYPES[type].speed * sm);
     // a mimic rolls real-or-phantom at planning time; hidden until it nears the zone
-    const phantom = type === 'mimic' && rnd(s) < MIMIC_PHANTOM;
+    const phantom = type === 'mimic' && rndPlan(r) < MIMIC_PHANTOM;
     q.push({ at: thisArr - travel, arr: thisArr, type, side: thisSide, dist, phantom });
   }
   // first spawn at second 0.8 of the wave
@@ -889,6 +952,7 @@ function tick(s, dt) {
   stepWalkers(s, ev, dt, rg, sm);
   resolveFormation(r);
   r.enemies = r.enemies.filter(e => !e.dead);
+  stepBuffer(s, ev, dt, rg);
 
   const fieldEmpty = !r.queue.length &&
     !r.enemies.some(e => (e.kind === 'proj' ? !e.reflected : true));
@@ -965,6 +1029,40 @@ function expireTwinWindow(s, ev) {
   }
 }
 
+// The early-press buffer (see PRESS_BUFFER): queued presses land the tick their
+// target crosses into reach, or expire into the full miss punishment. Living
+// inside the tick keeps replays honest — a conversion is a pure function of the
+// simulation state, so the ghost's buffered presses land on the same tick on
+// every machine.
+function stepBuffer(s, ev, dt, rg) {
+  const r = s.run;
+  if (!r.buf || !r.buf.length) return;
+  // a stun (twin lapse, a phantom whiff) or an opening duel empties the hands:
+  // during the QTE every press belongs to the chain, a leftover ordinary swing
+  // feeding a chain link would be nonsense
+  if (r.stun > 0 || (r.boss && r.boss.state === 'qte')) { r.buf.length = 0; return; }
+  for (const q of r.buf.slice()) {
+    const ready =
+      nearestWalker(r, q.side, null, o => o.dist <= rg) ||
+      r.enemies.some(e => !e.dead && e.kind === 'proj' && !e.reflected && e.side === q.side && e.dist <= rg) ||
+      (r.boss && r.boss.state === 'walk' && r.boss.side === q.side && r.boss.dist <= rg);
+    if (ready) {
+      r.buf.splice(r.buf.indexOf(q), 1);
+      ev.push({ type: 'bufferedStrike', ev: strikeCore(s, q.side, q.prev, false) });
+      // the landed swing may have ended the wave, stunned the hero (a phantom)
+      // or opened a duel — in each case whatever is still queued must not fire
+      if (s.phase !== 'combat' || r.stun > 0 ||
+          (r.boss && r.boss.state === 'qte')) { r.buf.length = 0; return; }
+    } else if ((q.t -= dt) <= 0) {
+      // nothing arrived: the swing was a whiff after all — the full price, and
+      // the flub's stun takes any other queued press down with it
+      r.buf.length = 0;
+      ev.push({ type: 'bufferedStrike', ev: flubMiss(s, q.side) });
+      return;
+    }
+  }
+}
+
 // Walkers and projectiles: every enemy's own step of the approach.
 function stepWalkers(s, ev, dt, rg, sm) {
   const r = s.run;
@@ -1001,8 +1099,33 @@ function stepWalkers(s, ev, dt, rg, sm) {
         if (owner && owner.side === e.side && e.dist >= owner.dist) {
           const healed = killEnemy(s, owner);
           e.dead = true;
-          ev.push({ type: 'reflectKill', side: e.side, dist: owner.dist });
+          ev.push({ type: 'reflectKill', side: e.side, dist: owner.dist, enemy: owner.type });
           if (healed) ev.push({ type: 'vamp' });
+        } else if (!owner && !e.fromBoss) {
+          // Ownerless steel — the rain's, or the thrower died before his blade
+          // came home — is not spent: it bites the first solid walker it
+          // crosses. Eligibility is the chain bolt's rule (auto-steel must not
+          // cheat a mechanic): a guarded stance and twins are off-limits, a
+          // hologram is not solid. One bite: a kill or one hit, blade spent.
+          const prev = e.dist - e.projSpeed * dt; // where this tick's flight began
+          let victim = null;
+          for (const w of r.enemies) {
+            if (w.dead || w.kind === 'proj' || w.side !== e.side || w.phantom) continue;
+            if (w.fstate === 'guard' || ENEMY_TYPES[w.type].twin) continue;
+            if (w.dist > e.dist || w.dist < prev) continue;
+            if (!victim || w.dist < victim.dist) victim = w;
+          }
+          if (victim) {
+            e.dead = true;
+            victim.hits -= 1;
+            if (victim.hits <= 0) {
+              const healed = killEnemy(s, victim);
+              ev.push({ type: 'reflectKill', side: e.side, dist: victim.dist, enemy: victim.type });
+              if (healed) ev.push({ type: 'vamp' });
+            } else {
+              ev.push({ type: 'reflectHit', side: e.side, dist: victim.dist, enemy: victim.type });
+            }
+          } else if (e.dist > SPAWN_DIST * 1.15) e.dead = true;
         } else if (e.dist > SPAWN_DIST * 1.15) e.dead = true;
       } else {
         e.dist -= e.projSpeed * dt;
@@ -1204,6 +1327,7 @@ function skipWave(s) {
 
 function clearWave(s, ev) {
   const r = s.run;
+  if (r.buf) r.buf.length = 0; // a press queued at the wave's end dies with the wave
   // a skipped wave is nobody's flawless wave
   if (!r.waveHurt && !r.cheated) s.meta.stats.perfectWaves++;
   if (!r.endless && r.wave >= WAVES_PER_ACT && r.act >= ACTS.length) {
@@ -1244,7 +1368,9 @@ function rollOffers(s) {
   const out = [];
   const slots = 3 + (metaLvl(s, 'mslot') ? 1 : 0);
   while (out.length < slots && pool.length) {
-    out.push(pool.splice(Math.floor(rnd(s) * pool.length), 1)[0].id);
+    // the plan stream: on a shared daily seed, the same pick history sees the
+    // same cards — however differently the fights themselves went
+    out.push(pool.splice(Math.floor(rndPlan(s.run) * pool.length), 1)[0].id);
   }
   return out;
 }
@@ -1283,10 +1409,17 @@ function applyDash(s, side, m) {
   const r = s.run;
   if (m <= 0) return 0;
   r.worldX += side * m;
+  const holdD = range(s) * 0.94; // the fencer's dueling measure — where his own advance stops
   for (const e of r.enemies) {
     if (e.dead) continue;
+    const before = e.dist;
     e.dist += e.side === side ? -m : m;
     if (e.kind === 'proj' && e.dist < 2) e.dist = 2; // a deflected shuriken never "jumps past" the hero
+    // A duelist holds his measure: the dash never DRAGS a stanced fencer past
+    // his dueling distance. The guard→window timing is tuned for his own
+    // approach — a kill-dash that teleported the stance to point-blank played
+    // the window at a range where the lunge was effectively unanswerable.
+    if (e.fstate && e.side === side && e.dist < holdD) e.dist = Math.min(before, holdD);
   }
   if (r.boss && r.boss.state === 'walk') {
     r.boss.dist = Math.max(DASH_STOP, r.boss.dist + (r.boss.side === side ? -m : m));
@@ -1612,10 +1745,19 @@ function strike(s, side) {
   // a stunned press mutated nothing and is not worth a byte of recording
   if (r.rec) r.rec.a.push({ t: r.ticks, s: side });
   r.presses++; // every press that reached the blade — the accuracy denominator
-  const rg = range(s);
   // side of the previous press (any press) — the adapter's shield "reads" it
   const prevSide = r.lastStrikeSide;
   r.lastStrikeSide = side;
+  return strikeCore(s, side, prevSide, true);
+}
+
+// The body of a swing. Called twice: from strike() at the press itself, and
+// from stepBuffer() when a queued early press converts — the conversion passes
+// canBuffer=false (a press may wait once, never re-queue) and the prevSide it
+// captured at press time, so the adapter's shield reads the true press order.
+function strikeCore(s, side, prevSide, canBuffer) {
+  const r = s.run;
+  const rg = range(s);
 
   // ---------- Warden: the QTE shred ----------
   const b = r.boss;
@@ -1723,11 +1865,16 @@ function strike(s, side) {
       r.execAt = undefined;
       return { type: 'ghostMiss', side };
     }
-    r.stun = stunTime(s);
-    r.combo = 0;
-    r.chainCombo = 0;
-    r.misses++;
-    return { type: 'miss', side };
+    // The early swing hangs and waits for its target (see PRESS_BUFFER). One
+    // slot per side — two, so a hair-early twin chord queues both hands and
+    // both land the tick the pair steps in. A repeat on an occupied side is
+    // mashing: it flubs at once and takes everything queued down with it.
+    if (canBuffer && !(r.buf || []).some(q => q.side === side)) {
+      (r.buf = r.buf || []).push({ side, t: PRESS_BUFFER, prev: prevSide });
+      return { type: 'buffered', side };
+    }
+    if (r.buf) r.buf.length = 0;
+    return flubMiss(s, side);
   }
   for (const p of projs) {
     p.reflected = true;
@@ -1758,6 +1905,15 @@ function strike(s, side) {
   // an execute pierces any defense — "kills any enemy" with no exceptions, so it
   // skips the type's resolver and drops straight to the plain hit.
   const execNext = berserkOn(s) && (r.execHits + 1) % EXEC_EVERY === 0;
+  // A press that just deflected steel has already connected: the arc stops at
+  // the steel instead of committing into a guarded blade or a hologram. Without
+  // this, a shuriken flying past a fencer's closed stance was a trap with no
+  // answer — deflect and eat the riposte, or hold and eat the shuriken. The
+  // punishing resolutions (parry, whiff) survive only for a press with no
+  // legitimate victim; an execute still pierces the guard as always.
+  if (!execNext && projs.length && (enemy.fstate === 'guard' || enemy.phantom)) {
+    return finish({ type: 'reflect', side, dist: projs[0].dist, combo: r.combo, count: projs.length });
+  }
   if (!execNext) {
     const b = ENEMY_BEHAVIOR[enemy.type];
     const res = b && b.resolveStrike && b.resolveStrike({ s, r, side, prevSide, enemy });
@@ -1775,6 +1931,17 @@ function strike(s, side) {
     if (m) res.dash = m;
   }
   return finish(res);
+}
+
+// The punished swing: the stun, the wiped combo, the ledger's miss. Shared by
+// the immediate flub in strikeCore and a buffered press expiring in stepBuffer.
+function flubMiss(s, side) {
+  const r = s.run;
+  r.stun = stunTime(s);
+  r.combo = 0;
+  r.chainCombo = 0;
+  r.misses++;
+  return { type: 'miss', side };
 }
 
 // Every press that connects bumps the combo and the best-combo high-water mark.
@@ -2082,6 +2249,7 @@ function endRun(s, victory) {
     else st.bestAct = Math.max(st.bestAct, victory ? ACTS.length + 1 : r.act);
     if (victory) st.wins++;
     recordDaily(s, r, victory);
+    recordMonthly(s, r);
   }
   // seal the recording: the replay knows where the run truly ended
   if (r.rec) { r.rec.T = r.ticks; r.rec.end = victory ? 'victory' : 'dead'; }
@@ -2108,6 +2276,7 @@ function abandonRun(s) {
     // walking out on the daily still offers the door-side score to the ledger —
     // it lands only if it beats the day's standing best
     recordDaily(s, s.run, false);
+    recordMonthly(s, s.run);
     if (s.run.rec) { s.run.rec.T = s.run.ticks; s.run.rec.end = 'quit'; }
   }
   s.run = null;
@@ -2152,7 +2321,7 @@ const Game = {
   MUTATORS, MUTATOR_CHANCE, MUT_CREDIT, MUT_PAIR_CREDIT, MUT_PAIR_WAVE, FOG_DIST, RAIN_EVERY, BLITZ_SPEED, SQUALL_SIZE, mutSpeed, mutHas, mutCredit,
   MISS_SURGE, surgeMult,
   endlessWave,
-  dailySeed, startDaily,
+  dailySeed, startDaily, startMonthly,
   deathReport, causeName, REPORT_TIPS,
   ACTS, ENEMY_TYPES, ACT_WEIGHTS, IMPLANTS, META, ACHIEVEMENTS, checkAchievements,
   LOG, checkLog, BOSS_VOICE_AFTER,
