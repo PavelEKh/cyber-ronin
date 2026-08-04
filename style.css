@@ -59,6 +59,25 @@ body::after {
 
 #hud-armor { display: flex; gap: 5px; min-width: 180px; }
 
+/* the touch pause: phones have neither ESC nor START — a quiet corner button
+   under the armor pips, visible only to coarse pointers so a desktop never
+   sees it. pointer-events restored: the HUD itself is click-through. */
+#btn-pause-touch {
+  display: none;
+  position: absolute;
+  top: 52px; left: 14px;
+  width: 46px; height: 40px;
+  background: rgba(10, 16, 34, 0.55);
+  color: #9fb8d8;
+  border: 1px solid rgba(63, 107, 255, 0.4);
+  border-radius: 6px;
+  font-size: 18px;
+  line-height: 1;
+  pointer-events: auto;
+  touch-action: none;
+}
+@media (pointer: coarse) { #btn-pause-touch { display: block; } }
+
 .armor-pip {
   width: 28px; height: 17px;
   background: var(--cyan);

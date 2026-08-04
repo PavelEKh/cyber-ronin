@@ -48,6 +48,7 @@ const STR = {
   loading:    ['ЗАГРУЗКА…', 'LOADING…'],
   btnReset:   ['⌫ СБРОСИТЬ ПРОГРЕСС', '⌫ RESET PROGRESS'],
   btnSettings: ['⚙ НАСТРОЙКИ', '⚙ SETTINGS'],
+  btnExit:    ['🚪 ВЫХОД', '🚪 EXIT'],
   settingsTitle: ['НАСТРОЙКИ', 'SETTINGS'],
   setMusic:   ['МУЗЫКА', 'MUSIC'],
   setSfx:     ['ЗВУКИ', 'SOUND FX'],
@@ -140,8 +141,8 @@ const HELP_PARAGRAPHS = [
    `Hit an enemy only when it is <b>within reach</b> (ground markers). Swinging at air — a short <b>stun</b>, a combo reset, and while you hang the <b>crowd speeds up</b>.`],
   [`<b>Дрон</b> умирает с одного удара. <b>Панк</b> после удара перелетает на другую сторону — добей там. <b>Щитовик</b> держит три удара. <b>Метатель</b> кидает сюрикен — отбей его обратно.`,
    `A <b>drone</b> dies in one hit. A <b>punk</b> flips to the other side after a hit — finish him there. A <b>shielder</b> takes three hits. A <b>thrower</b> hurls a shuriken — deflect it back.`],
-  [`Элита ломает ритм: <b>фехтовальщик</b> парирует — жди зелёного окна; <b>адаптант</b> блокирует чередование — бей дважды с одной стороны; <b>близнецы</b> умирают только от одновременного удара обеих кнопок.`,
-   `Elites break the rhythm: the <b>fencer</b> parries — wait for the green window; the <b>adapter</b> blocks alternation — strike twice from one side; the <b>twins</b> die only to both buttons at once.`],
+  [`Элита ломает ритм: <b>фехтовальщик</b> парирует — жди зелёного окна; <b>маятник</b> дважды перелетает дорогу — останови его третьим ударом; <b>близнецы</b> умирают только от одновременного удара обеих кнопок.`,
+   `Elites break the rhythm: the <b>fencer</b> parries — wait for the green window; the <b>pendulum</b> crosses the road twice — stop him with the third hit; the <b>twins</b> die only to both buttons at once.`],
   [`<b>Мимик</b> выглядит как дрон, но у зоны вспыхивает истинная суть: <b>плотный</b> — настоящий, бей; <b>полый и холодный</b> — призрак, <b>не бей</b> (сам растает, а удар сквозь него — промах). Проверяет концентрацию, а не привычку.`,
    `A <b>mimic</b> looks like a drone but flashes its true nature near the zone: <b>solid</b> — real, strike it; <b>hollow and cold</b> — a phantom, <b>don't strike</b> (it fades on its own, and a swing through it whiffs). It tests concentration, not habit.`],
   [`В конце акта выходит <b>Страж</b>: ударь его в зоне и повтори последовательность стрелок в темпе. Ошибка или промедление — минус броня, и он зайдёт снова. У каждого стража свой трюк: порывы ветра, <b>глитч-стрелки</b> (бей в противоположную сторону), призыв подмоги.`,
@@ -1020,6 +1021,12 @@ function handleStrikeEvent(ev) {
     case 'kill':
       Scene.slash(ev.side, true);
       Scene.corpse(ev.side, ev.dist, ev.enemy, 1, ev.exec);
+      if (ev.pairFell) {
+        // the execute took the twin's mirror with it — the second corpse and
+        // burst land on the opposite side, same distance (pairs walk mirrored)
+        Scene.corpse(-ev.side, ev.dist, 'twin', 1, true);
+        Scene.burst(-ev.side, ev.dist, '#ffffff', 26);
+      }
       if (ev.exec) {
         // execute: a fatter burst, longer hitstop, its own tag
         Scene.burst(ev.side, ev.dist, '#ffffff', 26);
@@ -1045,6 +1052,9 @@ function handleStrikeEvent(ev) {
       Scene.slash(ev.side, true);
       Scene.burst(ev.side, Math.min(ev.dist, Game.range(state)), '#ffd98a', 6);
       Sound.sfx('slash', comboPitch(), sidePan(ev.side, ev.dist), ev.enemy);
+      // the pendulum's crossing gets its own whoosh, panned toward where he
+      // LANDS — the ear tracks the flight even when the eye is busy
+      if (ev.enemy === 'adapt') Sound.sfx('pendswing', 1, sidePan(-ev.side, 150));
       comboNote(0.09); // a plain hit sings quieter than a kill
       Pad.impact(0.2, 35);
       break;
@@ -1273,10 +1283,10 @@ const BOSS_TIPS = [
 const BASE_TIPS = {
   lines: ['Бей только когда враг <b>в зоне досягаемости</b> — метки на земле. Удар по воздуху даёт стан, сбрасывает комбо и <b>разгоняет толпу</b> на время стана — промах отнимает и время, и дистанцию.',
           '<b>Панк</b> после удара перелетает на другую сторону, <b>щитовик</b> держит три удара, <b>метатель</b> кидает сюрикен — его можно отбить тем же ударом.',
-          'Элита ломает ритм: <b>фехтовальщик</b> — только в зелёное окно, <b>адаптант</b> — два удара подряд с одной стороны, <b>близнецы</b> — обе кнопки одновременно.'],
+          'Элита ломает ритм: <b>фехтовальщик</b> — только в зелёное окно, <b>маятник</b> — дважды перелетает, третий его останавливает, <b>близнецы</b> — обе кнопки одновременно.'],
   en: { lines: ['Strike only when an enemy is <b>within reach</b> — the ground markers show it. Swinging at air stuns you, resets the combo and <b>speeds the crowd up</b> for as long as the stun — a miss costs both time and ground.',
                 'A <b>punk</b> flips to the other side after a hit, a <b>shielder</b> takes three, a <b>thrower</b> hurls a shuriken — the same strike deflects it.',
-                'Elites break the rhythm: the <b>fencer</b> only in the green window, the <b>adapter</b> two hits from one side, the <b>twins</b> both buttons at once.'] },
+                'Elites break the rhythm: the <b>fencer</b> only in the green window, the <b>pendulum</b> crosses twice and falls to the third, the <b>twins</b> both buttons at once.'] },
 };
 
 // Pause is the only calm moment in a run — spend it telling the player what
@@ -1412,7 +1422,16 @@ function handleTickEvent(ev) {
         Game.T(BOSS_NAMES[kind - 1], 'name'),
         Game.T((known ? BOSS_VOICE : BOSS_SUBS)[kind - 1], 'sub'));
       Sound.sfx('boss');
-      Scene.shake(6);
+      // a light dip under the far blade — the Warden's set takes over from
+      // the next bar, this just clears the air for the draw itself
+      Sound.duckMusic(0.3, 0.3, 0.8);
+      // the detonation moved from the ears to the eyes: the sound stays a
+      // quiet blade, the SCREEN explodes — flash, debris on his horizon,
+      // and a proper quake underfoot
+      Scene.flash('#ffffff', 0.09);
+      Scene.burst(ev.side, 320, '#ff3b3b', 30);
+      Scene.burst(ev.side, 300, '#ffffff', 16);
+      Scene.shake(9);
       break;
     }
     case 'bossGustWarn':
@@ -1762,6 +1781,14 @@ $('btn-replay-victory').addEventListener('click', () => startReplayView());
 // the badge is the speed control, the ✕ leaves the ghost — phones have neither SPACE nor ESC
 $('replay-badge').addEventListener('click', () => { if (replay) cycleReplaySpeed(); });
 $('replay-exit').addEventListener('click', () => endReplayView());
+// the touch pause: phones have neither ESC nor START. stopPropagation keeps
+// the tap from doubling as a strike on the screen half under the button.
+$('btn-pause-touch').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  e.preventDefault();
+  pressEscape();
+});
+
 $('replay-badge').addEventListener('pointerdown', e => e.stopPropagation());
 $('replay-exit').addEventListener('pointerdown', e => e.stopPropagation());
 for (const b of document.querySelectorAll('#board-tabs button')) {
@@ -1817,6 +1844,13 @@ for (const b of document.querySelectorAll('#gfx-tabs button')) {
 }
 $('btn-settings').addEventListener('click', () => showScreen('settings'));
 $('btn-set-back').addEventListener('click', () => showScreen('menu'));
+
+// The desktop shell's quit: only the Electron wrapper defines CR_SHELL, so in
+// a browser the button stays hidden and the menu is byte-identical to itch.
+if (window.CR_SHELL) {
+  $('btn-exit').classList.remove('hidden');
+  $('btn-exit').addEventListener('click', () => window.CR_SHELL.quit());
+}
 
 // ---------- Progress reset ----------
 let resetArmed = false;
@@ -2077,6 +2111,11 @@ function loop(t) {
   }
 
   trackZoneEntries();
+  // The Warden's shadow over the arrangement, derived rather than event-chased:
+  // spawn, chain, phase break, death, quit and the replay viewer all reduce to
+  // this one line. The scheduler picks the state up on its next grid step.
+  const duelBoss = state.phase === 'combat' && state.run && state.run.boss;
+  Sound.setDuel(duelBoss ? duelBoss.state : null, duelBoss ? duelBoss.kind : 0);
   if (state.phase === 'combat') updateHud();
   // the peril heartbeat in the palms: one heavy pulse a second while the hero
   // stands one hit from death — pairs with the red breathing and the choked mix
@@ -2085,7 +2124,10 @@ function loop(t) {
     if (perilBeatT <= 0) { perilBeatT = 0.95; Pad.impact(0.35, 70); }
   } else perilBeatT = 0;
   if (!replayActive) checkAch(rawDt);
-  Scene.render(state, dt, rawDt);
+  // The sub-step remainder: how far between the last tick and the next the
+  // frame lands. The renderer lerps pd→dist by it — on >60 Hz panels this is
+  // what turns the 60 Hz sim quanta back into smooth motion.
+  Scene.render(state, dt, rawDt, Math.min(1, simAcc / Game.STEP));
 }
 
 // ---------- Startup ----------

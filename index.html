@@ -37,6 +37,8 @@
     <!-- Wave mutator badge: lit only while a mutated wave is running -->
     <div id="hud-mut" class="hidden"><span id="hud-mut-icon"></span><span id="hud-mut-name"></span></div>
   </div>
+  <!-- touch pause: phones have neither ESC nor START — shown for coarse pointers only -->
+  <button id="btn-pause-touch">⏸</button>
 </div>
 
 <!-- Unlocked achievement toast -->
@@ -84,6 +86,8 @@
       <button id="btn-log" class="cyber-btn" data-i18n="btnLog">📓 ЖУРНАЛ</button>
       <button id="btn-help" class="cyber-btn" data-i18n="btnHelp">❔ КАК ИГРАТЬ</button>
       <button id="btn-settings" class="cyber-btn" data-i18n="btnSettings">⚙ НАСТРОЙКИ</button>
+      <!-- desktop shell only: unhidden when the Electron wrapper sets CR_SHELL -->
+      <button id="btn-exit" class="cyber-btn hidden" data-i18n="btnExit">🚪 ВЫХОД</button>
     </div>
     <!-- The champion's frame: the daily seed's №1 — watch the tape, take the
          crown. Filled by Board.champ(); hidden while the online piece is off

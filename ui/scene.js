@@ -148,7 +148,7 @@ const Scene = (() => {
   // borrow a hue that already MEANS something on the field:
   //
   //   orange — punk        blue   — shielder     green  — thrower, and the
-  //   violet — fencer      lime   — adapter               fencer's open window
+  //   violet — fencer      lime   — pendulum              fencer's open window
   //   yellow — twins, BLOCKED                    magenta — a lying glitch link
   //   red    — the Warden and damage             white   — a landed hit
   //
@@ -3498,11 +3498,22 @@ const Scene = (() => {
   // the body drawing (shadow, ground anchor) and the glint bracket box.
   const isFlying = (t) => t === 'drone' || t === 'mimic';
 
+  // Fixed-step interpolation: the sim advances in 60 Hz quanta while the
+  // display may refresh faster; on 144/165 Hz panels raw sim positions repeat
+  // for 2 then 3 frames and the approach judders — worst under the warp, where
+  // the stutter is multiplied by 5.5. Bodies draw at pd→dist blended by the
+  // accumulator remainder (main.js passes it into render). Gameplay signals —
+  // the zone glint, the range-active markers — stay on the true dist: the lerp
+  // runs at most one step behind and must never lie about mechanics.
+  let interpA = 1;
+  const rdist = (e) => (e.pd === undefined ? e.dist : e.pd + (e.dist - e.pd) * interpA);
+
   function drawEnemy(e, t, run) {
+    const d = rdist(e); // interpolated draw distance — every visual below uses it
     // FOG mutator: everything beyond the veil is invisible — enemies materialize
-    if (run && Game.mutHas(run, 'fog') && e.dist > Game.FOG_DIST) return;
+    if (run && Game.mutHas(run, 'fog') && d > Game.FOG_DIST) return;
     const st = ACT_STYLE[actId];
-    let x = X(e.side, e.dist);
+    let x = X(e.side, d);
     // Miss surge: while the hero hangs, the crowd rushes — speed streaks trail
     // behind every walker so the lost ground is seen, not just suffered.
     if (run && run.stun > 0 && e.kind !== 'proj' && !e.dead) {
@@ -3562,13 +3573,36 @@ const Scene = (() => {
     }
     let rollK = 0, rollSpin = 0;
     if (vis.roll) {
-      const k = (t - vis.roll.t0) / 0.3;
+      // The pendulum's whole identity is the flight, so his crossing is slow
+      // and high where the punk's stays a quick tumble: over the hero's head,
+      // with a trail, half again as long in the air. Missable is broken.
+      const pend = e.type === 'adapt';
+      const k = (t - vis.roll.t0) / (pend ? 0.55 : 0.3);
       if (k >= 1) vis.roll = null;
       else {
         const dir = Math.sign(x - vis.roll.fromX) || 1;
         x = vis.roll.fromX + (x - vis.roll.fromX) * k;
-        rollK = Math.sin(Math.PI * k);
+        rollK = Math.sin(Math.PI * k) * (pend ? 1.8 : 1);
         rollSpin = k * Math.PI * 2 * dir;
+        if (pend) {
+          // the arc drawn behind him: a fading blue wake along the flight path
+          ctx.save();
+          ctx.strokeStyle = eColor('adapt');
+          ctx.shadowColor = eColor('adapt');
+          ctx.shadowBlur = 10;
+          ctx.lineWidth = 2.2 * S;
+          ctx.globalAlpha = 0.4 * (1 - k * 0.5);
+          ctx.beginPath();
+          const x0 = vis.roll.fromX;
+          for (let i = 0; i <= 12; i++) {
+            const kk = k * (i / 12);
+            const tx = x0 + (x - x0) * (kk / Math.max(k, 0.001));
+            const ty = groundY - Math.sin(Math.PI * kk) * 1.8 * 70 * S - 24 * S;
+            i === 0 ? ctx.moveTo(tx, ty) : ctx.lineTo(tx, ty);
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
       }
     } else {
       // knockback (pushback, kill rollback, mercy retreat) jolts dist instantly —
@@ -3583,7 +3617,7 @@ const Scene = (() => {
     vis.x = x;
 
     const face = -e.side; // runs toward the center
-    const ph = e.dist / 16; // step phase from distance — leg speed matches movement speed
+    const ph = d / 16; // step phase from distance — leg speed matches movement speed
     groundGlow(x, st.accent, 40 * S);
     // the drone flies: a small, faint shadow instead of a footprint. A mimic wears
     // the same disguise, so it hovers too.
@@ -3594,9 +3628,10 @@ const Scene = (() => {
     const conf = SPRITE_CONF[e.type];
     let spriteDrawn = false;
     if (conf && Sprites.ready()) {
-      let anim = 'run', idx = Math.floor(e.dist / 6), glow = conf.glow;
-      // shielder: the halo fades as his slab is broken — 3 hits bright, 1 hit dim
+      let anim = 'run', idx = Math.floor(d / 6), glow = conf.glow;
+      // shielder and pendulum: the halo counts the hits they still hold
       if (e.type === 'shield') glow = `rgba(63,107,255,${(0.14 + 0.16 * e.hits).toFixed(2)})`;
+      if (e.type === 'adapt') glow = `rgba(180,255,61,${(0.12 + 0.14 * e.hits).toFixed(2)})`;
       if (run && run.boss && run.boss.state === 'qte') {
         // duel focus: summons freeze while the QTE shred runs — they stand and watch
         anim = 'idle'; idx = Math.floor(t * 8);
@@ -3792,28 +3827,10 @@ const Scene = (() => {
         ctx.restore();
       }
     } else if (e.type === 'adapt') {
+      // the pendulum: the reading shield-arc died with the adapter — the
+      // slab pose stays (he crosses the road behind it), the lime halo above
+      // counts his remaining hits, and the flight itself draws the wake
       if (!spriteDrawn) stickman(x, groundY, { color: eColor('adapt'), face, phase: ph, pose: 'shield', scale: 1.15 });
-      // the shield "reads" the last press's side: solid against alternation,
-      // after a hit from its own side it dims for a moment
-      const up = !run || run.lastStrikeSide !== e.side;
-      ctx.save();
-      ctx.translate(x + face * 17 * S, groundY - 32 * S);
-      ctx.scale(face, 1); // the shield arc is always convex toward the hero
-      ctx.strokeStyle = up ? '#dcffab' : '#445a2a';
-      ctx.globalAlpha = up ? 0.9 : 0.35;
-      ctx.shadowColor = eColor('adapt');
-      ctx.shadowBlur = up ? 14 : 4;
-      ctx.lineWidth = 3.4 * S;
-      ctx.beginPath();
-      ctx.arc(0, 0, 22 * S, -1.25, 1.25);
-      ctx.stroke();
-      if (up) {
-        ctx.globalAlpha = 0.5;
-        ctx.lineWidth = 1.6 * S;
-        ctx.beginPath();
-        ctx.arc(0, 0, 27 * S, -1.1, 1.1);
-        ctx.stroke();
-      }
       ctx.restore();
     } else if (e.type === 'twin') {
       const touched = run && run.twinPress && run.twinPress.pair === e.pair && run.twinPress.side === e.side;
@@ -4015,7 +4032,7 @@ const Scene = (() => {
       ctx.globalAlpha *= 0.45 + 0.12 * Math.sin(t * 9);
       ctx.translate(Math.sin(t * 34) * 1.8 * S, 0);
     }
-    drawBoss({ ...b, side: -b.side }, t, X(-b.side, b.dist), 0, 0);
+    drawBoss({ ...b, side: -b.side }, t, X(-b.side, rdist(b)), 0, 0);
     ctx.restore();
   }
 
@@ -4041,7 +4058,7 @@ const Scene = (() => {
     // over his red halo, and a reversal crown sits above his head (drawn below).
     const lying = b.kind === 3 && b.state === 'qte' && b.glitch && b.glitch[b.idx];
     let bAnim = b.state === 'walk' && !jumpK ? 'run' : 'idle';
-    let bIdx = b.state === 'walk' ? Math.floor(b.dist / 6) : Math.floor(t * 8);
+    let bIdx = b.state === 'walk' ? Math.floor(rdist(b) / 6) : Math.floor(t * 8);
     let bGlow = 'rgba(255,59,59,0.55)';
     if (flinch) {
       bAnim = 'hurt';
@@ -4053,7 +4070,7 @@ const Scene = (() => {
     const bossSprite = Sprites.ready() && Sprites.draw(ctx, 'boss',
       bAnim, bIdx, 0, 0, SPR_BOSS, -b.side, bGlow);
     if (!bossSprite) stickman(0, 0, {
-      color: eColor('boss'), face: -b.side, phase: b.dist / 22,
+      color: eColor('boss'), face: -b.side, phase: rdist(b) / 22,
       pose: b.state === 'walk' && !jumpK ? 'run' : 'idle', scale: 1.8,
     });
     // Maglev gust: speed streaks trail behind the hurled Warden
@@ -4517,7 +4534,7 @@ const Scene = (() => {
       const e = id === 'boss' ? run.boss
         : run.enemies.find(o => o.id === id && !o.dead && o.kind !== 'proj');
       if (k >= 1 || !e) { glints.delete(id); continue; }
-      const x = X(e.side, e.dist);
+      const x = X(e.side, rdist(e));
       ctx.save();
       // the lock-on brackets: four corners snap onto the silhouette — wide on
       // the first frame, tight by half-life — and fade as they hold. The box
@@ -4572,7 +4589,8 @@ const Scene = (() => {
   }
 
   // ---------- Frame ----------
-  function render(st8, dt, rdt) {
+  function render(st8, dt, rdt, alpha) {
+    interpA = alpha === undefined ? 1 : alpha; // no alpha (tests, tools) — draw raw sim positions
     fx.t += dt;
     fx.tr += Math.min(dt, rdt === undefined ? dt : rdt); // see fx.tr above
     driftPx += (scene().drift || 0) * unitPx * dt; // scenes that move on their own
@@ -4652,7 +4670,7 @@ const Scene = (() => {
     if (inCombat && run) {
       for (const e of run.enemies) drawEnemy(e, fx.t, run);
       if (run.boss) {
-        drawBoss(run.boss, fx.t, X(run.boss.side, run.boss.dist), 0, 0);
+        drawBoss(run.boss, fx.t, X(run.boss.side, rdist(run.boss)), 0, 0);
         drawBossPhantom(run.boss, fx.t); // the projection mirrors in the wet ground too
       }
     }
@@ -4683,7 +4701,7 @@ const Scene = (() => {
         if (pairs[k].length !== 2) continue;
         const [a, b] = pairs[k];
         // the thread must not betray a twin hidden in the fog
-        if (Game.mutHas(run, 'fog') && (a.dist > Game.FOG_DIST || b.dist > Game.FOG_DIST)) continue;
+        if (Game.mutHas(run, 'fog') && (rdist(a) > Game.FOG_DIST || rdist(b) > Game.FOG_DIST)) continue;
         const y = groundY - 40 * S;
         ctx.save();
         ctx.strokeStyle = eColor('twin');
@@ -4692,8 +4710,8 @@ const Scene = (() => {
         ctx.shadowBlur = 8;
         ctx.lineWidth = 1.6 * S;
         ctx.beginPath();
-        ctx.moveTo(X(a.side, a.dist), y);
-        ctx.quadraticCurveTo(cx, y - 30 * S, X(b.side, b.dist), y);
+        ctx.moveTo(X(a.side, rdist(a)), y);
+        ctx.quadraticCurveTo(cx, y - 30 * S, X(b.side, rdist(b)), y);
         ctx.stroke();
         ctx.restore();
         // The pair's demand, written on the thread itself: ◄ + ►. A thread alone
@@ -4733,7 +4751,7 @@ const Scene = (() => {
       if (Game.mutHas(run, 'fog')) drawFogVeil();
       if (run.boss) {
         const b = run.boss;
-        const bx = X(b.side, b.dist);
+        const bx = X(b.side, rdist(b));
         if (!bossVis) bossVis = { side: b.side, x: bx, jump: null, idx: 0, flinchT: -9 };
         if (bossVis.side !== b.side) {
           // the logic switched sides instantly — on screen the Warden vaults over

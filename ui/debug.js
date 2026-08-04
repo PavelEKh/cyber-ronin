@@ -356,6 +356,24 @@ function build() {
   slider(row, 'простр. %', 0, 200, 5, () => f.spaceGain * 100, v => Sound.setFlag('spaceGain', v / 100));
   note('выше — включено. ниже — проверено на слух и не читается, оставлено выключенным');
 
+  // --- solo hunt: mute music voices one at a time to find the offender ---
+  row = section('голоса музыки');
+  toggle(row, '🥁 бочка', () => f.mxKick, () => Sound.setFlag('mxKick', !f.mxKick));
+  toggle(row, '🎩 хэты', () => f.mxHats, () => Sound.setFlag('mxHats', !f.mxHats));
+  toggle(row, '👏 снейр', () => f.mxSnare, () => Sound.setFlag('mxSnare', !f.mxSnare));
+  row = el('div', 'row', panel);
+  toggle(row, '🎸 рифф/бас', () => f.mxBass, () => Sound.setFlag('mxBass', !f.mxBass));
+  toggle(row, '🔪 стабы', () => f.mxStab, () => Sound.setFlag('mxStab', !f.mxStab));
+  row = el('div', 'row', panel);
+  toggle(row, '🎹 арпы', () => f.mxArp, () => Sound.setFlag('mxArp', !f.mxArp));
+  toggle(row, '🎤 лид', () => f.mxLead, () => Sound.setFlag('mxLead', !f.mxLead));
+  row = el('div', 'row', panel);
+  toggle(row, '🌫 пады', () => f.mxPad, () => Sound.setFlag('mxPad', !f.mxPad));
+  toggle(row, '🧵 швы', () => f.mxSeam, () => Sound.setFlag('mxSeam', !f.mxSeam));
+  toggle(row, '✨ сталь', () => f.mxShim, () => Sound.setFlag('mxShim', !f.mxShim));
+  note('охота на звук: выключай по одному, пока раздражитель не замолчит. '
+     + '«швы» — подъём/спуск припева и тёрнэраунд, «сталь» — мерцание на комбо 30+');
+
   row = el('div', 'row', panel);
   toggle(row, '♪ ноты', () => f.notes, () => Sound.setFlag('notes', !f.notes));
   toggle(row, '▤ тиры', () => f.tiers, () => Sound.setFlag('tiers', !f.tiers));

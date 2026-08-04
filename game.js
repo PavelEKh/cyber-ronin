@@ -103,7 +103,8 @@ const STEP = 1 / 60;
 // rejected loudly instead. Bumping the epoch retires stored replays (board
 // ROWS survive). The full version shows in the menu corner.
 const VERSION_MAJOR = 1;
-const VERSION_REPLAY = 2; // 1.2: the combo multiplier caps at ×3.5 — score favors depth over one unbroken tail
+const VERSION_REPLAY = 3; // 1.3: an execute on a twin takes the pair, and the chord charges the execute counter
+                          // (1.2: the combo multiplier caps at ×3.5 — score favors depth over one unbroken tail)
                           // (1.1: the early-press buffer — a swing at an empty zone waits for its target)
 const VERSION_COSMETIC = 0;
 const VERSION = `${VERSION_MAJOR}.${VERSION_REPLAY}.${VERSION_COSMETIC}`;
@@ -246,7 +247,7 @@ const ENEMY_TYPES = {
   thrower: { name: 'Метатель', en: { name: 'Thrower' },  hits: 1, speed: 106, credits: 4, score: 40, throwDist: 430, projSpeed: 300 },
   // Rhythm breakers: they punish mindless mashing, each with its own input.
   fencer:  { name: 'Фехтовальщик', en: { name: 'Fencer' },  hits: 1, speed: 88, credits: 5, score: 60, fencer: true }, // strike only during the green window
-  adapt:   { name: 'Адаптант',     en: { name: 'Adapter' }, hits: 2, speed: 62, credits: 5, score: 55, adapt: true },  // broken by two consecutive same-side strikes
+  adapt:   { name: 'Маятник',      en: { name: 'Pendulum' }, hits: 3, speed: 62, credits: 5, score: 55, swap: true }, // two flights across the road; the third hit stops the swing
   twin:    { name: 'Близнец',      en: { name: 'Twin' },    hits: 1, speed: 70, credits: 3, score: 45, twin: true },   // the pair dies only to an L+R chord
   mimic:   { name: 'Мимик',        en: { name: 'Mimic' },   hits: 1, speed: 118, credits: 3, score: 35, mimic: true }, // looks like a drone; flashes real or phantom at the last second
 };
@@ -771,8 +772,9 @@ function startRun(s, mode) {
     implants: {},   // implant id -> times taken
     execHits: 0,    // Protocol EXECUTE hit counter (not reset by misses)
     chainCombo: 0,  // hits toward the Arc Discharge bolt: accumulate after install, reset with the combo
-    lastStrikeSide: 0, // side of the previous press — the adapter's shield "reads" it
+    lastStrikeSide: 0, // side of the previous press — kept for mechanics that read press order
     twinPress: null,   // first press of a twin chord: {pair, side, at}
+    lastPress: null,   // the previous press of ANY kind: {side, at} — the zone-wide chord reads it
     buf: [],           // early presses waiting for a target: {side, t, prev} — see PRESS_BUFFER
     worldX: 0,         // the hero's accumulated world travel — drives background parallax in the UI
     stun: 0, time: 0,
@@ -826,7 +828,7 @@ function weightedPick(s, weights) {
 // Wave generation. Choreography is defined by ARRIVAL time into the strike zone
 // (solvability guarantee): intervals are planned at zone entry, and each enemy's
 // spawn moment is back-computed from its speed. Otherwise a fast drone
-// spawned after a slow shielder catches up en route — and even spawn
+// spawned after a slow walker catches up en route — and even spawn
 // intervals turn into an unsolvable pile of simultaneous arrivals.
 // Queue entry: {at — spawn second, arr — arrival second, type, side, dist}.
 function buildWave(s) {
@@ -943,6 +945,13 @@ function tick(s, dt) {
   r.time += dt;
   r.waveT += dt;
   if (r.stun > 0) r.stun = Math.max(0, r.stun - dt);
+
+  // The renderer's interpolation anchor: where every body stood when the
+  // previous tick ended. Taken before any movement or spawning this tick; the
+  // simulation itself never reads pd, so replays stay bit-for-bit. (Entities
+  // born mid-tick carry no pd and draw at their true dist for one step.)
+  for (const e of r.enemies) e.pd = e.dist;
+  if (r.boss) r.boss.pd = r.boss.dist;
 
   const sm = speedMult(r) * cryoMult(s) * mutSpeed(r) * surgeMult(r);
   const rg = range(s);
@@ -1411,8 +1420,21 @@ function applyDash(s, side, m) {
   if (m <= 0) return 0;
   r.worldX += side * m;
   const holdD = range(s) * 0.94; // the fencer's dueling measure — where his own advance stops
+  // Living pairs count once, up front: a twin pair straddles both columns, so a
+  // dash shifts one mirror in and the other out — and the pair-sync used to
+  // resolve that to the WORSE of the two. Net effect: every kill-dash anywhere
+  // walked the pair backward (measured: ~2000 units over a 26-kill wave — the
+  // pair could never arrive while the player was doing well). A pair holds
+  // formation instead: net shift zero, and no visible jump either — its screen
+  // offset simply never changes. An orphaned twin has no mirror and dashes
+  // like everyone.
+  const twinAlive = {};
+  for (const e of r.enemies) {
+    if (!e.dead && e.type === 'twin') twinAlive[e.pair] = (twinAlive[e.pair] || 0) + 1;
+  }
   for (const e of r.enemies) {
     if (e.dead) continue;
+    if (e.type === 'twin' && twinAlive[e.pair] === 2) continue;
     const before = e.dist;
     e.dist += e.side === side ? -m : m;
     if (e.kind === 'proj' && e.dist < 2) e.dist = 2; // a deflected shuriken never "jumps past" the hero
@@ -1421,6 +1443,11 @@ function applyDash(s, side, m) {
     // approach — a kill-dash that teleported the stance to point-blank played
     // the window at a range where the lunge was effectively unanswerable.
     if (e.fstate && e.side === side && e.dist < holdD) e.dist = Math.min(before, holdD);
+    // The same contract for a winding thrower: he planted his feet to throw,
+    // and the dash must not slide him closer while he stands — on screen he
+    // was a statue moonwalking after the hero. He throws from where he
+    // stopped; a dash AWAY still leaves him behind like anything planted.
+    if (e.windup !== undefined && !e.thrown && e.side === side) e.dist = before;
   }
   if (r.boss && r.boss.state === 'walk') {
     r.boss.dist = Math.max(DASH_STOP, r.boss.dist + (r.boss.side === side ? -m : m));
@@ -1556,28 +1583,10 @@ const ENEMY_BEHAVIOR = {
       if (!partner) return null; // orphaned twin — fights as a normal enemy
       const tp = r.twinPress;
       if (tp && tp.pair === enemy.pair && tp.side === -side && r.time - tp.at <= CHORD_WIN) {
-        r.twinPress = null;
-        s.meta.stats.chords++;
-        bumpCombo(r, 2);
-        if (chainEvery(s)) r.chainCombo += 2;
-        const dist = enemy.dist;
-        // both die unconditionally — no short-circuit between the two kills
-        const healedFirst = killEnemy(s, enemy);
-        const healed = killEnemy(s, partner) || healedFirst;
-        const res = { type: 'twinKill', side, dist, combo: r.combo };
-        if (healed) res.vamp = true;
-        return res;
+        return chordKill(s, side, enemy, partner);
       }
       r.twinPress = { pair: enemy.pair, side, at: r.time };
       return { type: 'twinTouch', side, dist: enemy.dist };
-    },
-  },
-  // Adapter: its shield covers the previous press's side, so alternation is blocked —
-  // only two consecutive same-side presses break through (a block costs nothing).
-  adapt: {
-    resolveStrike({ side, prevSide, enemy }) {
-      if (prevSide === side) return null;
-      return { type: 'blocked', side, dist: enemy.dist };
     },
   },
 };
@@ -1756,9 +1765,39 @@ function strike(s, side) {
 // from stepBuffer() when a queued early press converts — the conversion passes
 // canBuffer=false (a press may wait once, never re-queue) and the prevSide it
 // captured at press time, so the adapter's shield reads the true press order.
+// The chord's payout, shared by the twin resolver and the zone-wide double
+// tap in strikeCore: both twins fall for +2 combo, the streak charges, and
+// Protocol EXECUTE counts the two connected presses without ever swallowing
+// an armed charge — a pair that dies whole needs no free kill, so the
+// counter parks one short of the trigger instead of spending it.
+function chordKill(s, side, a, b) {
+  const r = s.run;
+  r.twinPress = null;
+  r.lastPress = null; // the gesture is spent — a third tap starts a new one
+  s.meta.stats.chords++;
+  bumpCombo(r, 2);
+  if (chainEvery(s)) r.chainCombo += 2;
+  if (berserkOn(s)) {
+    for (let k = 0; k < 2; k++) {
+      if ((r.execHits + 1) % EXEC_EVERY !== 0) r.execHits++;
+    }
+  }
+  const dist = a.dist;
+  // both die unconditionally — no short-circuit between the two kills
+  const healedFirst = killEnemy(s, a);
+  const healed = killEnemy(s, b) || healedFirst;
+  const res = { type: 'twinKill', side, dist, combo: r.combo };
+  if (healed) res.vamp = true;
+  return res;
+}
+
 function strikeCore(s, side, prevSide, canBuffer) {
   const r = s.run;
   const rg = range(s);
+  // every press leaves a timestamp; the zone-wide double tap below reads the
+  // PREVIOUS one, so the pair hears the chord no matter what each hand hit
+  const prevPress = r.lastPress;
+  r.lastPress = { side, at: r.time };
 
   // ---------- Warden: the QTE shred ----------
   const b = r.boss;
@@ -1861,8 +1900,10 @@ function strikeCore(s, side, prevSide, canBuffer) {
   const projs = r.enemies.filter(e =>
     !e.dead && e.kind === 'proj' && !e.reflected && e.side === side && e.dist <= rg);
   if (!enemy && !projs.length) {
-    // EXECUTE just stole this press's target — forgive the miss (once)
-    if (r.execAt !== undefined && r.execSide === side && r.time - r.execAt < EXEC_GRACE) {
+    // EXECUTE just stole this press's target — forgive the miss (once).
+    // execSide 0 is the pair-execute: both hands were committed, either is forgiven.
+    if (r.execAt !== undefined && (r.execSide === side || r.execSide === 0) &&
+        r.time - r.execAt < EXEC_GRACE) {
       r.execAt = undefined;
       return { type: 'ghostMiss', side };
     }
@@ -1887,12 +1928,16 @@ function strikeCore(s, side, prevSide, canBuffer) {
   const finish = res => {
     if (projs.length) res.reflected = projs.length; // deflect and strike with a single press
     // the shuriken principle for the fencer: if an OPEN fencer stands in the zone
-    // behind the target, the same slash reaches him — the window isn't lost to the crowd
-    if (res.type === 'kill' || res.type === 'hit') {
+    // behind the target, the same slash reaches him — the window isn't lost to
+    // the crowd. A chord is both hands swinging at once, so a twinKill's bonus
+    // reads either column (two fencers open on both sides at once is a stack
+    // rare enough that the first one found takes the single slash).
+    if (res.type === 'kill' || res.type === 'hit' || res.type === 'twinKill') {
       for (const o of r.enemies) {
-        if (o.dead || o === enemy || o.kind === 'proj' || o.side !== side || o.dist > rg) continue;
+        if (o.dead || o === enemy || o.kind === 'proj' || o.dist > rg) continue;
+        if (o.side !== side && res.type !== 'twinKill') continue;
         if (ENEMY_TYPES[o.type].fencer && o.fstate === 'open') {
-          res.opened = hitEnemy(s, o, side, true);
+          res.opened = hitEnemy(s, o, o.side, true);
           break;
         }
       }
@@ -1901,6 +1946,25 @@ function strikeCore(s, side, prevSide, canBuffer) {
   };
   if (!enemy) {
     return finish({ type: 'reflect', side, dist: projs[0].dist, combo: r.combo, count: projs.length });
+  }
+
+  // The zone-wide double tap: a pair standing in reach answers to L+R inside
+  // the chord window NO MATTER what else shares the zone. The nearest-first
+  // rule used to hand one hand's press to a drone and the pair never heard
+  // the chord — the first press still strikes whatever it strikes, but the
+  // second, landing on the other hand in time, belongs to the twins. Only
+  // when the nearest target is NOT itself a twin: then the resolver's own
+  // touch-and-chord flow already answers, and preempting it would eat the
+  // pair out from under a buffered second swing.
+  if (!(enemy && enemy.type === 'twin') &&
+      prevPress && prevPress.side === -side && r.time - prevPress.at <= CHORD_WIN) {
+    const byPair = {};
+    for (const o of r.enemies) {
+      if (!o.dead && o.type === 'twin' && o.dist <= rg) (byPair[o.pair] = byPair[o.pair] || []).push(o);
+    }
+    for (const k in byPair) {
+      if (byPair[k].length === 2) return finish(chordKill(s, side, byPair[k][0], byPair[k][1]));
+    }
   }
 
   // an execute pierces any defense — "kills any enemy" with no exceptions, so it
@@ -1923,6 +1987,25 @@ function strikeCore(s, side, prevSide, canBuffer) {
 
   const targetDist = enemy.dist; // victim's distance before the hit (a punk swap changes it)
   const res = hitEnemy(s, enemy, side, false);
+  // An execute on a twin takes the PAIR: "kills any enemy" cannot leave half an
+  // enemy on the road. The old path killed one and left an orphan that broke
+  // the chord rule one-way — and when the execute landed on the second press
+  // of a chord, the chord silently never happened. The partner falls with its
+  // mirror (same +2 combo a chord pays), and the grace widens to either hand:
+  // a committed chord has both presses in flight when the first one turns out
+  // to be the execute, so the follow-up must not resolve as a whiff.
+  if (res.type === 'kill' && res.exec && enemy.type === 'twin') {
+    const partner = r.enemies.find(o =>
+      !o.dead && o !== enemy && o.type === 'twin' && o.pair === enemy.pair);
+    if (partner) {
+      bumpCombo(r);
+      if (chainEvery(s)) r.chainCombo++;
+      if (killEnemy(s, partner)) res.vamp = true;
+      res.pairFell = true;
+      r.execSide = 0; // 0 = either side's next press is forgiven (see EXEC_GRACE)
+      if (r.twinPress && r.twinPress.pair === enemy.pair) r.twinPress = null;
+    }
+  }
   // dash: a kill moves the hero to the victim, a non-killing hit is a short lunge
   if (res.type === 'kill') {
     const m = applyDash(s, side, Math.max(0, targetDist - DASH_STOP));
@@ -1999,6 +2082,14 @@ function hitEnemy(s, e, side, isChain) {
       // the discharge bolt never swaps punks — auto-effects must not surprise
       e.side = -e.side;
       e.dist = range(s) + KNOCK_EDGE_PAD + rnd(s) * KNOCK_SPREAD;
+      // ...but the returning punk must not cut in front of a walking twin: the
+      // follow-gap would shove the twin back and the mirror-sync would tax the
+      // whole pair. If the landing spot sits just ahead of a twin, the punk
+      // takes the slot BEHIND the pair instead.
+      for (const o of r.enemies) {
+        if (o.dead || o.type !== 'twin' || o.side !== e.side) continue;
+        if (o.dist >= e.dist - 1 && o.dist < e.dist + FOLLOW_GAP) e.dist = o.dist + FOLLOW_GAP;
+      }
     } else {
       e.dist = Math.min(SPAWN_DIST, e.dist + PUSHBACK);
     }
@@ -2041,9 +2132,15 @@ function killEnemy(s, e) {
   // a mutated wave pays extra — the risk is rewarded
   r.credits += Math.round(t.credits * creditMult(s) * mutCredit(r));
   // wave rollback: a kill pushes the nearest living enemy in that column back —
-  // fast hands genuinely push the crowd back instead of just surviving it
+  // fast hands genuinely push the crowd back instead of just surviving it.
+  // Twins are exempt like stanced fencers: the slowest walkers in the roster
+  // were the likeliest "nearest", and the mirror-sync taxed the whole pair for
+  // one column's rollback — the pair is a lesson to answer, not queue filler.
   const follower = nearestWalker(r, e.side, e);
-  if (follower && !follower.fstate) {
+  if (follower && !follower.fstate && follower.type !== 'twin' &&
+      !(follower.windup !== undefined && !follower.thrown)) {
+    // ...and never a thrower mid-windup: he planted his feet to throw, and
+    // every force that slid the statue — dash or rollback — read as jank
     follower.dist = Math.min(SPAWN_DIST, follower.dist + KILL_PUSH);
   }
   // nanovampirism: one repair per wave, earned by killing half its enemies;

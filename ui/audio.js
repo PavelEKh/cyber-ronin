@@ -8,6 +8,8 @@ const Sound = (() => {
   let limiter = null, revSend = null, conv = null; // output limiter and dense-reverb send
   let echoSend = null, echoDelay = null, echoDamp = null, echoFb = null; // outdoor slapback
   let peril = false; // the hero is one hit from death — see setPeril
+  let duel = null;     // null | 'walk' | 'qte' — the Warden on the field takes the decks
+  let duelKind = 1;    // which Warden: picks his tune from BOSS_TUNES
   let musicTimer = null, musicStep = 0, musicRoot = 41.2; // E1
   let musicAct = null; // remembered so a BPM change can restart the same track
   let musicT0 = 0; // when step 0 landed on the sample clock — the grid's anchor
@@ -42,6 +44,11 @@ const Sound = (() => {
     space: true,       // per-act reverb
     spaceGain: 1,      // overall scale on it — taste, dialled from the panel
     peril: true,       // the music tightens on the last armor pip
+    duel: true,        // the Warden guts the arrangement while he is on the field
+    // --- solo-hunt mutes: one music voice each, for finding the one that
+    // bothers the ear. All true = the full mix; flip one off at a time.
+    mxKick: true, mxHats: true, mxSnare: true, mxBass: true, mxStab: true,
+    mxArp: true, mxLead: true, mxPad: true, mxSeam: true, mxShim: true,
     music: true,       // the backing arrangement
     sfx: true,         // impacts — mute to hear the melody bare
     musicVol: 1,       // the settings screen's sliders, 0..1 scale on each bus
@@ -50,12 +57,15 @@ const Sound = (() => {
     bpm: 120,
   };
   const flags = () => FLAGS;
-  // The tier actually playing. With gating off the arrangement runs at 2, which
-  // is exactly the mix that shipped before any of this: kick, bass, hats, snare,
-  // arp and pad. Tier 3 is additive on top of that, not the original.
+  // The tier actually playing. With gating off the arrangement floors at 2 —
+  // exactly the mix that shipped before any of this: kick, bass, hats, snare,
+  // arp and pad — but a deep streak still earns tier 3: the combo wiring
+  // (setTier) always existed, the gate just never let its top layer through,
+  // and next to the menu dirge and the Warden's set the fight sounded like
+  // the oldest track in the building. The floor never drops in a lull.
   const musicTier = () => {
-    if (!FLAGS.tiers) return 2;
-    return FLAGS.tier === null ? autoTier : FLAGS.tier;
+    if (FLAGS.tier !== null) return FLAGS.tier; // the panel's pin wins
+    return FLAGS.tiers ? autoTier : Math.max(2, autoTier);
   };
 
   function setFlag(k, v) {
@@ -174,18 +184,40 @@ const Sound = (() => {
   }
 
   // A tonal hit: an oscillator with a frequency glide.
-  function tone(type, f0, f1, dur, vol, when = 0, bus = null) {
+  // atk > 0 rounds the hammer off: the gain climbs for that many seconds
+  // before the decay starts. Zero (the default) keeps the old instant-attack
+  // pluck — drums, stabs and impacts want the hammer; melodic voices that
+  // read as "a piano poking through the mix" want the climb.
+  // cut > 0 puts a lowpass at that frequency between the oscillator and the
+  // gain. A NAKED sawtooth carries its whole harmonic series and buzzes like
+  // a wasp whatever the volume — every synth bass that ever sat politely in
+  // a mix did it behind a filter. The riff lives at cut ~700: body stays,
+  // fizz goes, and the ear stops being dragged to it.
+  function tone(type, f0, f1, dur, vol, when = 0, bus = null, atk = 0, cut = 0) {
     const t = ctx.currentTime + when;
     const osc = ctx.createOscillator();
     osc.type = type;
     osc.frequency.setValueAtTime(f0, t);
-    osc.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + atk + dur);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    osc.connect(g).connect(bus || voiceDest || sfxBus);
+    if (atk > 0) {
+      g.gain.setValueAtTime(0.0008, t);
+      g.gain.linearRampToValueAtTime(vol, t + atk);
+    } else {
+      g.gain.setValueAtTime(vol, t);
+    }
+    g.gain.exponentialRampToValueAtTime(0.001, t + atk + dur);
+    let head = osc;
+    if (cut > 0) {
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = cut;
+      osc.connect(lp);
+      head = lp;
+    }
+    head.connect(g).connect(bus || voiceDest || sfxBus);
     osc.start(t);
-    osc.stop(t + dur + 0.02);
+    osc.stop(t + atk + dur + 0.02);
   }
 
   // What each enemy is made of. The type is already in every strike event and
@@ -349,7 +381,17 @@ const Sound = (() => {
       case 'tally': // the results reel: one soft click per counted step
         tone('square', 1300 * p, 1250 * p, 0.02, 0.035);
         break;
-      case 'boss':    tone('sawtooth', 55, 38, 1.4, 0.42); tone('sawtooth', 82, 58, 1.4, 0.3, 0.12); noiseHit(1.0, 200, 60, 0.25, 1); break;
+      case 'boss': // the far blade: a sub thump, a blade drawn at distance (the
+        // qtestart shing lowpassed and pushed away), and a thin ring left
+        // hanging — the duel's summons, not an explosion
+        tone('sine', 90, 34, 0.55, 0.5);
+        noiseHit(0.5, 1800, 3600, 0.07, 4, 0.16);
+        tone('triangle', 1245, 1245, 0.5, 0.03, 0.22);
+        break;
+      case 'pendswing': // the pendulum crosses: a whoosh that rises and falls with the arc
+        noiseHit(0.45, 900, 2600, 0.10, 3);
+        noiseHit(0.45, 2600, 700, 0.08, 3, 0.22);
+        break;
       case 'qtestart': // duel: the shing of a drawn blade and a low stance pulse
         noiseHit(0.2, 5000, 9000, 0.25, 3);
         tone('sine', 70, 45, 0.35, 0.4);
@@ -448,152 +490,240 @@ const Sound = (() => {
   const LADDER = [ST.r, ST.b2, ST.b3, ST.p4, ST.p5, ST.b6, ST.b7, 2];
   const rung = (step) => LADDER[((step % LADDER.length) + LADDER.length) % LADDER.length];
   // The form is 8 bars — four 2-bar phrases in an A A' B A'' period, so the
-  // loop breathes four times longer before it repeats. A is the original cell;
-  // A' keeps its head but the tail climbs; B departs upward and pedals around
-  // p4/p5; A'' comes home and lets the tritone tail resolve for the turnaround.
-  const BASSLINE = [
-    // A — home: circling the tonic, leaning on b2 and b6
-    ST.r, ST.r, ST.b2, ST.r,  ST.r, ST.b6, ST.p5, ST.b2,
-    ST.r, ST.r, ST.b2, ST.r,  ST.b3, ST.b2, ST.r, ST.tt,
-    // A' — the same head, but the tail climbs instead of biting
-    ST.r, ST.r, ST.b2, ST.r,  ST.r, ST.b6, ST.p5, ST.b2,
-    ST.r, ST.b2, ST.b3, ST.p4,  ST.p5, ST.p4, ST.b3, ST.b2,
-    // B — the departure: up the ladder, pedalling before the fall
-    ST.p4, ST.p4, ST.p5, ST.p4,  ST.b6, ST.p5, ST.p4, ST.b3,
-    ST.p4, ST.b3, ST.b2, ST.b3,  ST.p4, ST.p5, ST.b6, ST.b7,
-    // A'' — home again; the low b7 approach and the tritone resolve down
-    ST.r, ST.r, ST.b2, ST.r,  ST.r, ST.b6, ST.p5, ST.b2,
-    ST.b3, ST.b2, ST.r, ST.b7 * 0.5,  ST.tt, ST.b3, ST.b2, ST.r,
-  ];
-  const CYCLE = (BASSLINE.length / 16) * 32; // sixteenths in the full form (128)
-  // One pad chord per 2-bar section: i, bVI, bII (the Phrygian signature), i.
-  // Section 0 is voiced exactly as the old static pad — home base is unchanged.
+  // loop breathes four times longer before it repeats: A sections play the
+  // riff, B opens into the chorus, and the turnaround chugs the pass home.
+  const CYCLE = 128; // sixteenths in the full form (8 bars of 16)
+  // The fallback pad chords — i, bVI, bII (the Phrygian signature), i — for
+  // any tune that does not voice its own.
   const PADS = [
     [ST.r,        ST.b3, ST.tt],
     [ST.b6 * 0.5, ST.r,  ST.b3],
     [ST.b2,       ST.p4, ST.b6],
     [ST.r,        ST.b3, ST.tt],
   ];
-  // Arp figures per section — same nerves, shifting harmony under them
-  const ARPS = [
-    [ST.r,  ST.b3, ST.p5, ST.b2],
-    [ST.r,  ST.p4, ST.b6, ST.p5],
-    [ST.b2, ST.p4, ST.b6, ST.b7],
-    [ST.r,  ST.b3, ST.p5, ST.b2],
-  ];
-  const ARPS2 = [
-    [ST.p5, ST.b7,     ST.p4, ST.b6],
-    [ST.p5, 2,         ST.b6, ST.p4],
-    [ST.b6, ST.b2 * 2, ST.p4, ST.b7],
-    [ST.p5, ST.b7,     ST.p4, ST.b6],
-  ];
-  // An alternative tail for A' — the climb sometimes turns into a fall. One of
-  // the per-cycle dice below picks which tail this pass through the form takes.
-  const TAIL_ALT = [ST.b3, ST.p4, ST.b3, ST.b2,  ST.r, ST.b7 * 0.5, ST.b2, ST.r];
-  // The second arp bank: same nerves, different contours. A per-cycle die picks
-  // the bank, so the figure under a long fight keeps trading shapes.
-  const ARPS_B = [
-    [ST.b2, ST.r,  ST.p5, ST.p4],
-    [ST.p4, ST.b3, ST.b6, 2],
-    [ST.b6, ST.p5, ST.b2 * 2, ST.b7],
-    [ST.b2, ST.r,  ST.p5, ST.p4],
-  ];
 
   // ---------- Per-act tunes ----------
-  // Six acts used to share one melody and differ only in key, tempo and room.
-  // Now each act carries its own bass line and its own arp figures — the same
-  // 8-bar A A' B A'' grammar, the same Phrygian palette, the same drums and
-  // pads underneath, so a handover mid-form still parses as one language.
-  // 0 in a bass line is a rest (the original street line never rests; the
-  // ship and the garden breathe). ARPS_B stays a shared alternate bank — the
-  // per-cycle die can always trade an act's figure for the common one.
+  // Six acts, six rhythm sections — same 8-bar A A' B A'' grammar, same
+  // Phrygian palette, each a distant cousin of a track that raged on other
+  // streets long ago: skeletons borrowed, every melody this game's own.
+  // The fields, all on the 16th grid (0 = rest):
+  //   riff      — 32 steps over the 2-bar cell: the A sections' line
+  //   chorus    — same grid for the B section: where the act opens up
+  //   kick      — step positions inside ONE bar where the kick lands
+  //   snare     — backbeat positions (defaults to the halftime 8)
+  //   stab      — cell positions where the stab chord bites
+  //   stabNotes — the stab's voicing (defaults to a bare power fifth)
+  //   lead/lead2 — the top line and its dice-swapped counter-phrase
+  //   pads      — per-section chords (defaults to the shared PADS)
+  //   swing     — odd sixteenths lean late by this fraction of a step
   const ACT_TUNES = {
-    // the shipped identity, untouched: the street IS this track
-    street: { bass: BASSLINE, arps: ARPS, tailAlt: TAIL_ALT },
-    // market — a bazaar's quick tongue: b2-b3 ornaments turning on themselves
-    market: { bass: [
-      ST.r, ST.b2, ST.r, ST.b3,  ST.b2, ST.r, ST.b6, ST.p5,
-      ST.r, ST.b2, ST.r, ST.b3,  ST.b2, ST.r, ST.tt, ST.b2,
-      ST.r, ST.b2, ST.r, ST.b3,  ST.b2, ST.r, ST.b6, ST.p5,
-      ST.b3, ST.p4, ST.b3, ST.b2,  ST.b3, ST.b2, ST.r, ST.b2,
-      ST.p5, ST.b6, ST.p5, ST.p4,  ST.p5, ST.b6, ST.b7, ST.b6,
-      ST.p5, ST.p4, ST.b3, ST.p4,  ST.b6, ST.p5, ST.p4, ST.b2,
-      ST.r, ST.b2, ST.r, ST.b3,  ST.b2, ST.r, ST.b6, ST.p5,
-      ST.b3, ST.b2, ST.tt, ST.b2,  ST.r, ST.b7 * 0.5, ST.b2, ST.r,
-    ], arps: [
-      [ST.r, ST.b3, ST.b2, ST.p5],
-      [ST.r, ST.p4, ST.b3, ST.b6],
-      [ST.b2, ST.b3, ST.p4, ST.b6],
-      [ST.r, ST.b3, ST.b2, ST.p5],
-    ] },
-    // train — a motor pedalling the root, whole runs jolting upward in B
-    train: { bass: [
-      ST.r, ST.r, ST.r, ST.b7 * 0.5,  ST.r, ST.r, ST.b2, ST.r,
-      ST.r, ST.r, ST.r, ST.b7 * 0.5,  ST.r, ST.b3, ST.b2, ST.r,
-      ST.r, ST.r, ST.r, ST.b7 * 0.5,  ST.r, ST.r, ST.b2, ST.r,
-      ST.r, ST.b3, ST.p4, ST.p5,  ST.p4, ST.b3, ST.b2, ST.b7 * 0.5,
-      ST.p4, ST.p4, ST.p4, ST.b3,  ST.p5, ST.p5, ST.p5, ST.p4,
-      ST.b6, ST.b6, ST.p5, ST.p4,  ST.b7, ST.b6, ST.p5, ST.p4,
-      ST.r, ST.r, ST.r, ST.b7 * 0.5,  ST.r, ST.r, ST.b2, ST.r,
-      ST.b3, ST.r, ST.b2, ST.b7 * 0.5,  ST.r, ST.tt, ST.b2, ST.r,
-    ], arps: [
-      [ST.r, ST.p5, ST.r, ST.b7],
-      [ST.r, ST.p4, ST.r, ST.b6],
-      [ST.b2, ST.p4, ST.p5, ST.b7],
-      [ST.r, ST.p5, ST.r, ST.b7],
-    ] },
-    // ship — open water: wide swells leaning on the low b6, a breath at the
-    // top of each phrase but the eighths otherwise kept walking — the first
-    // cut rested every other note and the deck drifted instead of rolling
-    ship: { bass: [
-      ST.r, ST.b6 * 0.5, ST.r, ST.b3,  ST.r, ST.b6 * 0.5, ST.b3, ST.b2,
-      ST.r, ST.b6 * 0.5, ST.r, ST.b3,  ST.b2, 0, ST.b7 * 0.5, 0,
-      ST.r, ST.b6 * 0.5, ST.r, ST.b3,  ST.r, ST.b6 * 0.5, ST.b3, ST.b2,
-      ST.r, ST.b3, ST.p4, ST.b3,  ST.b2, ST.b3, ST.b2, 0,
-      ST.p4, 0, ST.b6, ST.p4,  ST.p5, 0, ST.b3, ST.p4,
-      ST.p4, ST.b3, ST.b2, ST.b3,  ST.b6 * 0.5, 0, ST.b7 * 0.5, 0,
-      ST.r, ST.b6 * 0.5, ST.r, ST.b3,  ST.r, ST.b6 * 0.5, ST.b3, ST.b2,
-      ST.b3, ST.b2, ST.r, ST.b6 * 0.5,  ST.tt, 0, ST.b2, 0,
-    ], arps: [
-      [ST.r, ST.b6, ST.b3, ST.p5],
-      [ST.b2, ST.p4, ST.b6, ST.p4],
-      [ST.p4, ST.b6, ST.p5, ST.b3],
-      [ST.r, ST.b6, ST.b3, ST.p5],
-    ] },
-    // server — cold narrow cells circling b2, the tritone glinting off racks
-    server: { bass: [
-      ST.r, ST.b2, ST.r, ST.b2,  ST.r, ST.b3, ST.b2, ST.r,
-      ST.r, ST.b2, ST.r, ST.b2,  ST.tt, ST.r, ST.b2, ST.r,
-      ST.r, ST.b2, ST.r, ST.b2,  ST.r, ST.b3, ST.b2, ST.r,
-      ST.b2, ST.b3, ST.p4, ST.b3,  ST.b2, ST.r, ST.b2, ST.r,
-      ST.p4, ST.tt, ST.p4, ST.b3,  ST.p4, ST.tt, ST.p5, ST.p4,
-      ST.b6, ST.p5, ST.p4, ST.b3,  ST.b2, ST.b3, ST.p4, ST.tt,
-      ST.r, ST.b2, ST.r, ST.b2,  ST.r, ST.b3, ST.b2, ST.r,
-      ST.b3, ST.b2, ST.tt, ST.b2,  ST.r, ST.b2, ST.b7 * 0.5, ST.r,
-    ], arps: [
-      [ST.b2, ST.r, ST.b2, ST.tt],
-      [ST.b2, ST.p4, ST.b2, ST.b3],
-      [ST.p4, ST.tt, ST.b2, ST.b3],
-      [ST.b2, ST.r, ST.b2, ST.tt],
-    ] },
-    // garden — the summit: lines reaching up through p5-b7 and settling back;
-    // the breath lives in two rests at each phrase head, not across the bar —
-    // rested every other beat this high up, the summit stopped moving at all
-    garden: { bass: [
-      ST.r, 0, ST.p5, ST.r,  ST.b3, ST.p4, ST.b6, ST.p5,
-      ST.r, 0, ST.p5, ST.r,  ST.p4, ST.b3, ST.b2, ST.r,
-      ST.r, 0, ST.p5, ST.r,  ST.b3, ST.p4, ST.b6, ST.p5,
-      ST.b3, ST.p4, ST.p5, ST.b6,  ST.p5, ST.p4, ST.b3, ST.b2,
-      ST.p4, ST.p5, ST.b6, ST.p5,  ST.b7, ST.b6, ST.p5, ST.p4,
-      ST.b6, ST.b7, 2, ST.b7,  ST.b6, ST.p5, ST.p4, ST.b3,
-      ST.r, 0, ST.p5, ST.r,  ST.b3, ST.p4, ST.b6, ST.p5,
-      ST.b3, ST.b2, ST.r, ST.b7 * 0.5,  ST.tt, ST.b3, ST.b2, ST.r,
-    ], arps: [
-      [ST.r, ST.p5, ST.b7, ST.p5],
-      [ST.b3, ST.p5, ST.b6, ST.p5],
-      [ST.p4, ST.b6, ST.b7, ST.b6],
-      [ST.r, ST.p5, ST.b7, ST.p5],
-    ] },
+    // street — the reformed streets: the four-on-the-floor set that was born
+    // as the Warden's — vintage beat-em-up house — now opens the game at a run — a syncopated bass popping the octave with b7
+    // leading every second bar home, claps on 2 and 4, offbeat-hat drive from
+    // the tier hats, and a dark full-triad stab hook on the anticipations.
+    street: {
+      riff: [
+        1, 0, 1, 2,  0, 1, 0, 2,  1, 0, 1, 2,  0, 1, 2, 0,
+        1, 0, 1, 2,  0, 1, 0, 2,  1, 0, 1, 2,  0, 2, ST.b7, ST.b7,
+      ],
+      kick: [0, 4, 8, 12],
+      snare: [4, 12],
+      stab: [3, 6, 19, 22],
+      stabNotes: [ST.r, ST.b3, ST.p5],
+      arps: [
+        [ST.r, 2, ST.r, 2],
+        [ST.r, 2, ST.r, 2],
+        [ST.b2, ST.b2 * 2, ST.b2, ST.b2 * 2],
+        [ST.r, 2, ST.r, 2],
+      ],
+      pads: [
+        [ST.r, ST.p5, 2],
+        [ST.r, ST.p5, 2],
+        [ST.b2, ST.b6, ST.b2 * 2],
+        [ST.r, ST.p5, 2],
+      ],
+    },
+    // market — the bazaar runs downhill: a rolling house drive.
+    // The bass ROLLS in syncopated sixteenths with octave pops (where the
+    // street's set bounces, the market's runs), rave-sus stabs land on the
+    // offbeats, and the old bazaar tongue (b2-b3 turning on itself) moves
+    // upstairs into the lead hook. The B section tumbles: a falling Phrygian
+    // cascade where the anthem climbs — a bazaar spills downhill.
+    market: {
+      riff: [
+        1, 0, 1, 1,  2, 0, 1, 0,  1, 0, 1, 1,  2, 0, ST.b3, 0,
+        1, 0, 1, 1,  2, 0, 1, 0,  ST.b6, 0, ST.b6, ST.b6,  ST.p5, 0, ST.b2, 0,
+      ],
+      chorus: [
+        2, 0, 0, 0,  ST.b7, 0, 0, 0,  ST.b6, 0, 0, 0,  ST.p5, 0, 0, 0,
+        ST.b6, 0, 0, 0,  ST.p5, 0, 0, 0,  ST.b3, 0, 0, 0,  ST.b2, 0, ST.b2, 0,
+      ],
+      kick: [0, 4, 8, 12],
+      snare: [4, 12],
+      stab: [2, 10, 18, 26],
+      stabNotes: [ST.r, ST.p4, ST.b7, 2],
+      lead: [
+        0, 0, 0, 0,  0, 0, 0, 0,  2, ST.b3 * 2, ST.b2 * 2, 2,  0, ST.b7, 0, 0,
+        0, 0, 0, 0,  0, 0, 0, 0,  2, ST.b2 * 2, 2, ST.b7,  ST.b6, 0, ST.p5, 0,
+      ],
+      lead2: [
+        0, 0, 0, 0,  0, 0, 0, 0,  ST.b7, 2, ST.b2 * 2, ST.b3 * 2,  0, 2, 0, 0,
+        0, 0, 0, 0,  0, 0, 0, 0,  ST.p5, ST.b6, ST.b7, 2,  0, ST.b2 * 2, 0, 0,
+      ],
+      arps: [
+        [ST.r, ST.b2, ST.b3, ST.b2],
+        [ST.r, ST.b2, ST.b3, ST.b2],
+        [ST.b6, ST.p5, ST.p4, ST.b3],
+        [ST.r, ST.b2, ST.b3, ST.b2],
+      ],
+      pads: [
+        [ST.r, ST.p4, ST.b7],
+        [ST.r, ST.p4, ST.b7],
+        [ST.b6 * 0.5, ST.b3, ST.b6],
+        [ST.r, ST.p4, ST.b7],
+      ],
+    },
+    // train — machine techno at 400 km/h. The motor never stops — near-continuous sixteenth chug with
+    // mechanical stutters where a breath would be, b7 dips under the floor
+    // (the old pedal's DNA), tritone alarm stabs — and the B section is the
+    // overtake: an unbroken Phrygian run up the whole ladder and back down.
+    train: {
+      riff: [
+        1, 1, 1, 0,  1, 1, ST.b2, 0,  1, 1, 1, 0,  1, 0, ST.b7 * 0.5, 0,
+        1, 1, 1, 0,  1, 1, ST.b2, 0,  ST.b3, ST.b3, 0, ST.b3,  ST.b2, ST.b2, ST.b7 * 0.5, 0,
+      ],
+      chorus: [
+        1, 0, ST.b2, 0,  ST.b3, 0, ST.p4, 0,  ST.p5, 0, ST.b6, 0,  ST.b7, 0, 2, 0,
+        2, 0, ST.b7, 0,  ST.b6, 0, ST.p5, 0,  ST.p4, 0, ST.b3, 0,  ST.b2, 0, ST.b2, 0,
+      ],
+      kick: [0, 4, 8, 12],
+      snare: [4, 12],
+      stab: [7, 23],
+      stabNotes: [ST.r, ST.tt],
+      lead: [
+        0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 2, 0,
+        0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, ST.b7, 0,
+      ],
+      arps: [
+        [ST.r, ST.r, 2, ST.r],
+        [ST.r, ST.r, 2, ST.r],
+        [ST.b2, ST.b2, ST.b2 * 2, ST.b2],
+        [ST.r, ST.r, 2, ST.r],
+      ],
+      pads: [
+        [ST.r, ST.p5, 2],
+        [ST.r, ST.p5, 2],
+        [ST.b2, ST.b6, ST.b2 * 2],
+        [ST.r, ST.p5, 2],
+      ],
+    },
+    // ship — deck-jazz after midnight. The
+    // only swung act in the game (odd sixteenths lean a third of a step
+    // late) — a lazy walking bass with the old swells on the low b6, jazzy
+    // 7sus4 stabs on the off, a halftime backbeat with a kick that swaggers,
+    // and a B section where one long swell rolls down through the deck.
+    ship: {
+      swing: 0.32,
+      riff: [
+        1, 0, 0, ST.r,  ST.b3, 0, 0, ST.b3,  ST.p4, 0, 0, ST.p4,  ST.p5, 0, ST.b3, 0,
+        ST.b6 * 0.5, 0, 0, ST.b6 * 0.5,  ST.b7 * 0.5, 0, 0, ST.b7 * 0.5,  1, 0, 0, ST.b2,  ST.b3, 0, ST.b2, 0,
+      ],
+      chorus: [
+        ST.b6, 0, 0, 0,  ST.p5, 0, 0, 0,  ST.p4, 0, 0, 0,  ST.b3, 0, 0, 0,
+        ST.p4, 0, 0, 0,  ST.b3, 0, 0, 0,  ST.b2, 0, 0, 0,  1, 0, 0, 0,
+      ],
+      kick: [0, 6, 10],
+      snare: [8],
+      stab: [5, 13, 21, 29],
+      stabNotes: [ST.r, ST.p4, ST.b7],
+      lead: [
+        0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  ST.p5, 0, ST.p4, 0,
+        0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  ST.b3, 0, ST.b2, 0,
+      ],
+      arps: [
+        [ST.r, ST.b3, ST.p5, ST.b3],
+        [ST.r, ST.b3, ST.p5, ST.b3],
+        [ST.b6, ST.p4, ST.b6, ST.p5],
+        [ST.r, ST.b3, ST.p5, ST.b3],
+      ],
+      pads: [
+        [ST.r, ST.b3, ST.b7],
+        [ST.r, ST.b3, ST.b7],
+        [ST.b6 * 0.5, ST.r, ST.b3],
+        [ST.r, ST.b3, ST.b7],
+      ],
+    },
+    // server — cold power in the racks: the hardest techno in the building.
+    // Stuttering staccato cells — two
+    // hits and a hole — circling b2 with the tritone glinting where a melody
+    // would warm up, a gallop kick with a sixteenth push before the bar, the
+    // harshest stab cluster in the game (r+b2+tt), and a B section of cells
+    // that climb the rack and never resolve until the loop forces them home.
+    server: {
+      riff: [
+        1, 1, 0, 0,  ST.b2, ST.b2, 0, 0,  1, 1, 0, 0,  ST.tt, 0, ST.tt, 0,
+        1, 1, 0, 0,  ST.b2, ST.b2, 0, 0,  ST.tt, ST.tt, 0, ST.p4,  0, ST.b2, 0, 0,
+      ],
+      chorus: [
+        ST.p4, 0, ST.tt, 0,  ST.p4, 0, ST.tt, 0,  ST.p5, 0, ST.p4, 0,  ST.tt, 0, ST.b3, 0,
+        ST.b6, 0, ST.p5, 0,  ST.p4, 0, ST.tt, 0,  ST.b3, 0, ST.b2, 0,  ST.b2, ST.b2, 0, 0,
+      ],
+      kick: [0, 4, 8, 12, 14],
+      snare: [4, 12],
+      stab: [6, 22],
+      stabNotes: [ST.r, ST.b2, ST.tt],
+      lead: [
+        0, 0, 0, ST.tt * 2,  0, 0, 0, 0,  0, 0, 0, 2,  0, 0, 0, 0,
+        0, 0, 0, ST.b2 * 2,  0, 0, 0, 0,  0, 0, 0, ST.tt * 2,  0, 0, 0, 0,
+      ],
+      arps: [
+        [ST.b2, ST.r, ST.b2, ST.tt],
+        [ST.b2, ST.r, ST.b2, ST.tt],
+        [ST.p4, ST.tt, ST.b2, ST.b3],
+        [ST.b2, ST.r, ST.b2, ST.tt],
+      ],
+      pads: [
+        [ST.r, ST.tt, 2],
+        [ST.r, ST.tt, 2],
+        [ST.b2, ST.tt, ST.b2 * 2],
+        [ST.r, ST.tt, 2],
+      ],
+    },
+    // garden — the last round expands: wide-screen finale drive.
+    // Wide reaching phrases through p5-b7 (the summit's old DNA) over a full
+    // driving floor — the only act whose verse already sings — and a chorus
+    // that climbs to the octave, holds the peak for a whole bar, and steps
+    // down only to p5: the summit keeps the height it reached.
+    garden: {
+      riff: [
+        1, 0, 0, 1,  0, 0, ST.p5, 0,  ST.b6, 0, 0, ST.p5,  0, 0, ST.p4, 0,
+        1, 0, 0, 1,  0, 0, ST.p5, 0,  ST.b7, 0, 0, ST.b6,  0, ST.p5, 0, 0,
+      ],
+      chorus: [
+        ST.p5, 0, 0, 0,  ST.b6, 0, 0, 0,  ST.b7, 0, 0, 0,  2, 0, 0, 0,
+        2, 0, 0, 0,  ST.b7, 0, 0, 0,  ST.b6, 0, 0, 0,  ST.p5, 0, ST.p4, 0,
+      ],
+      kick: [0, 4, 8, 12],
+      snare: [4, 12],
+      stab: [0, 16],
+      stabNotes: [ST.r, ST.p5],
+      lead: [
+        0, 0, 0, 0,  0, 0, 0, 0,  2, 0, ST.b7, 0,  0, ST.b6, 0, 0,
+        0, 0, 0, 0,  0, 0, 0, 0,  2, 0, ST.b2 * 2, 0,  0, 2, 0, 0,
+      ],
+      arps: [
+        [ST.r, ST.p5, ST.b7, ST.p5],
+        [ST.r, ST.p5, ST.b7, ST.p5],
+        [ST.p4, ST.b6, ST.b7, ST.b6],
+        [ST.r, ST.p5, ST.b7, ST.p5],
+      ],
+      pads: [
+        [ST.r, ST.p5, 2],
+        [ST.r, ST.p5, 2],
+        [ST.b6 * 0.5, ST.b3, ST.b6],
+        [ST.r, ST.p5, 2],
+      ],
+    },
   };
   // ---------- The menu groove ----------
   // The menu no longer plays the fight's postcard cut: it runs its own set.
@@ -631,6 +761,214 @@ const Sound = (() => {
   const MBASS_C = [1, 0, 0, 1, 0, 0, ST.p5 * 0.5, 0, 1, 0, 0, ST.p5 * 0.5, 0, 0, 1, 0];
   // the turnaround: a Phrygian run falling home — a descent, not a fanfare
   const MLEAD = [2, ST.b7, ST.b6, ST.p5, ST.p4, ST.b3, ST.b2, ST.r];
+  // The Wardens' tunes — one per kind, all in whatever key and tempo the act
+  // is bleeding, all borrowed skeletons with native melodies (see BOSS_NAMES
+  // in main.js for who is who).
+  // 1 RONIN BETA — the duel hymn itself, stop-start steel: a beta copy of
+  //   the player deserves the player's anthem.
+  const BOSS_TUNES = {};
+  BOSS_TUNES[1] = {
+    riff: [
+      ST.r, ST.r, 0, ST.r,  0, ST.r, ST.r, 0,  ST.b2, 0, 0, ST.r,  0, 0, ST.b3, ST.b2,
+      ST.r, ST.r, 0, ST.r,  0, ST.r, ST.r, 0,  ST.p4, 0, ST.b3, 0,  ST.b2, ST.b2, 0, 0,
+    ],
+    chorus: [
+      ST.r, 0, 0, 0,  ST.b6, 0, 0, 0,  ST.b7, 0, 0, 0,  2, 0, 0, 0,
+      2, 0, 0, 0,  ST.b7, 0, 0, 0,  ST.b6, 0, 0, 0,  ST.p5, 0, ST.b2, 0,
+    ],
+    kick: [0, 6, 10, 14],
+    stab: [0, 16],
+    arps: [
+      [ST.r, ST.p5, ST.b7, 2],
+      [ST.r, ST.p4, ST.p5, ST.b7],
+      [ST.r, ST.b6, ST.b7, 2],
+      [ST.r, ST.p5, ST.b7, 2],
+    ],
+    // open fifths, no thirds: i5 under the verse, bVI5 under the chorus climb
+    pads: [
+      [ST.r, ST.p5, 2],
+      [ST.r, ST.p5, 2],
+      [ST.b6 * 0.5, ST.b3, ST.b6],
+      [ST.r, ST.p5, 2],
+    ],
+    // the top line: short answers thrown from inside the riff's own gaps
+    lead: [
+      0, 0, 0, 0,  0, 0, 0, 0,  0, 2, ST.b7, 0,  ST.b6, ST.p5, 0, 0,
+      0, 0, 0, 0,  0, 0, 0, 0,  0, ST.b7, 0, 0,  0, 0, ST.b6, ST.p5,
+    ],
+    // the same gaps, the other mood: the cycle dice swap answer for question
+    lead2: [
+      0, 0, 0, 0,  0, 0, 0, 0,  0, ST.p5, ST.b7, 0,  2, ST.b7, 0, 0,
+      0, 0, 0, 0,  0, 0, 0, 0,  0, 2, 0, 0,  0, 0, ST.b7, 2,
+    ],
+  };
+  // 2 MAGLEV WARDEN — no one returns from this roof: a creeping menace of a
+  //   riff, tritone alarms, and a lead that HOWLS — every note a falling cry
+  //   (the howl flag glides each lead note down a fourth, wind through steel).
+  BOSS_TUNES[2] = {
+    riff: [
+      1, 0, 0, 1,  0, 1, 0, 0,  ST.b2, 0, 1, 0,  0, ST.b7 * 0.5, 0, 0,
+      1, 0, 0, 1,  0, 1, 0, 0,  ST.b3, 0, ST.b2, 0,  1, 0, 0, 0,
+    ],
+    chorus: [
+      1, 0, ST.b3, 0,  ST.p4, 0, ST.p5, 0,  ST.b6, 0, ST.b7, 0,  2, 0, ST.b7, 0,
+      ST.b6, 0, ST.p5, 0,  ST.p4, 0, ST.b3, 0,  ST.b2, 0, 1, 0,  ST.b2, 0, 0, 0,
+    ],
+    kick: [0, 10],
+    snare: [8],
+    stab: [4, 20],
+    stabNotes: [ST.r, ST.tt],
+    howl: true,
+    lead: [
+      0, 0, 0, 0,  0, 0, 2, 0,  0, 0, 0, 0,  0, 0, ST.b7, 0,
+      0, 0, 0, 0,  0, 0, ST.b6, 0,  0, 0, 0, 0,  0, 0, ST.p5, 0,
+    ],
+    arps: [
+      [ST.r, ST.b2, ST.tt, ST.b2],
+      [ST.r, ST.b2, ST.tt, ST.b2],
+      [ST.p4, ST.tt, ST.b6, ST.tt],
+      [ST.r, ST.b2, ST.tt, ST.b2],
+    ],
+    pads: [
+      [ST.r, ST.b6, 2],
+      [ST.r, ST.b6, 2],
+      [ST.b2, ST.b6, ST.b2 * 2],
+      [ST.r, ST.b6, 2],
+    ],
+  };
+  // 3 ADMIN ONI — the glitch made music: a stuttering broken-cell riff, the
+  //   tritone shadowing every honest step (his links lie, his tune lies too),
+  //   a kick that lands where it should not.
+  BOSS_TUNES[3] = {
+    riff: [
+      1, 1, 0, 1,  0, 0, 1, 1,  0, ST.b2, ST.b2, 0,  ST.tt, 0, 0, ST.b2,
+      1, 1, 0, 1,  0, 0, 1, 1,  ST.tt, ST.tt, 0, ST.b3,  0, ST.b2, ST.b2, 0,
+    ],
+    chorus: [
+      1, 0, ST.b2, 0,  ST.b3, 0, ST.tt, 0,  ST.p4, 0, ST.tt, 0,  ST.p5, 0, ST.tt, 0,
+      ST.b6, 0, ST.tt, 0,  ST.p5, 0, ST.p4, 0,  ST.tt, 0, ST.b3, 0,  ST.b2, ST.b2, 0, 0,
+    ],
+    kick: [0, 3, 8, 11],
+    snare: [4, 12],
+    stab: [5, 21],
+    stabNotes: [ST.r, ST.b2, ST.tt],
+    lead: [
+      0, 0, 0, 0,  0, 0, 0, ST.tt * 2,  0, 0, 0, 0,  0, 0, 0, ST.b2 * 2,
+      0, 0, 0, 0,  0, 0, 0, 2,  0, 0, 0, 0,  0, 0, 0, ST.tt * 2,
+    ],
+    arps: [
+      [ST.b2, ST.tt, ST.b2, ST.r],
+      [ST.b2, ST.tt, ST.b2, ST.r],
+      [ST.tt, ST.p4, ST.tt, ST.b3],
+      [ST.b2, ST.tt, ST.b2, ST.r],
+    ],
+    pads: [
+      [ST.r, ST.tt, 2],
+      [ST.r, ST.tt, 2],
+      [ST.b2, ST.tt, ST.b2 * 2],
+      [ST.r, ST.tt, 2],
+    ],
+  };
+  // 4 CORE SHOGUN — the throne: a doom march an octave under everyone else,
+  //   massive open-chord stabs, and a chorus that climbs the whole ladder and
+  //   ENDS holding the octave — the final Warden owns the peak.
+  BOSS_TUNES[4] = {
+    riff: [
+      1, 0, 0, 0,  0, 0, ST.b2, 0,  1, 0, 0, 0,  ST.b7 * 0.5, 0, 0, 0,
+      1, 0, 0, 0,  0, 0, ST.b2, 0,  ST.b6 * 0.5, 0, 0, 0,  ST.b7 * 0.5, 0, 0, 0,
+    ],
+    chorus: [
+      1, 0, 0, 0,  ST.b2, 0, 0, 0,  ST.p4, 0, 0, 0,  ST.p5, 0, 0, 0,
+      ST.b6, 0, 0, 0,  ST.b7, 0, 0, 0,  2, 0, 0, 0,  2, 0, 0, 0,
+    ],
+    kick: [0, 8],
+    snare: [8],
+    stab: [0, 16],
+    stabNotes: [ST.r, ST.p5, 2],
+    lead: [
+      0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  ST.b6, 0, 0, 0,
+      0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  ST.b7, 0, 0, 0,
+    ],
+    arps: [
+      [ST.r, ST.p5, ST.r, ST.p5],
+      [ST.r, ST.p5, ST.r, ST.p5],
+      [ST.b6, ST.b7, ST.b6, ST.b7],
+      [ST.r, ST.p5, ST.r, ST.p5],
+    ],
+    pads: [
+      [ST.r, ST.p5, 2],
+      [ST.r, ST.p5, 2],
+      [ST.b6 * 0.5, ST.b3, ST.b6],
+      [ST.r, ST.p5, 2],
+    ],
+  };
+  // 5 THE ARMORER — steel that rings: a tight staccato riff, clanging sixth
+  //   stabs, and high blade-ping leads — the only Warden whose top voice
+  //   sits two octaves up, thin as an edge.
+  BOSS_TUNES[5] = {
+    riff: [
+      1, 0, 1, 0,  ST.b2, 0, 1, 0,  1, 0, ST.b6, 0,  ST.p5, 0, ST.b2, 0,
+      1, 0, 1, 0,  ST.b2, 0, 1, 0,  ST.b7, 0, ST.b6, 0,  ST.p5, 0, ST.p4, 0,
+    ],
+    chorus: [
+      ST.p5, 0, ST.b6, 0,  ST.p5, 0, ST.p4, 0,  ST.p5, 0, ST.b6, 0,  ST.b7, 0, 2, 0,
+      2, 0, ST.b7, 0,  ST.b6, 0, ST.p5, 0,  ST.b3, 0, ST.b2, 0,  1, 0, 0, 0,
+    ],
+    kick: [0, 6, 8, 14],
+    snare: [4, 12],
+    stab: [2, 18],
+    stabNotes: [ST.r, ST.b6],
+    lead: [
+      0, 0, 0, 0,  2, 0, 0, 0,  0, 0, 0, 0,  ST.b7 * 2, 0, 0, 0,
+      0, 0, 0, 0,  ST.b6 * 2, 0, 0, 0,  0, 0, 0, 0,  2, 0, 0, 0,
+    ],
+    arps: [
+      [ST.r, ST.b6, ST.p5, ST.b6],
+      [ST.r, ST.b6, ST.p5, ST.b6],
+      [ST.p4, ST.b6, ST.b7, ST.b6],
+      [ST.r, ST.b6, ST.p5, ST.b6],
+    ],
+    pads: [
+      [ST.r, ST.b6, 2],
+      [ST.r, ST.b6, 2],
+      [ST.b2, ST.b6, ST.b2 * 2],
+      [ST.r, ST.b6, 2],
+    ],
+  };
+  // 6 THE DOUBLE — a daydream groove worn as a mask: smooth, almost warm,
+  //   rolling like a softened market set — until the chorus resolves into a
+  //   tritone and the hologram flickers. His lead is the anthem's QUESTION
+  //   phrase (lead2): he asks in your own voice.
+  BOSS_TUNES[6] = {
+    riff: [
+      1, 0, 1, 0,  1, 0, ST.b3, 0,  1, 0, 1, 0,  ST.p4, 0, ST.b3, 0,
+      1, 0, 1, 0,  1, 0, ST.b3, 0,  ST.b6, 0, ST.p5, 0,  ST.p4, 0, ST.b2, 0,
+    ],
+    chorus: [
+      ST.b3, 0, 0, 0,  ST.p4, 0, 0, 0,  ST.p5, 0, 0, 0,  ST.b6, 0, 0, 0,
+      ST.p5, 0, 0, 0,  ST.p4, 0, 0, 0,  ST.b2, 0, 0, 0,  ST.b2, 0, ST.tt, 0,
+    ],
+    kick: [0, 4, 8, 12],
+    snare: [4, 12],
+    stab: [6, 22],
+    stabNotes: [ST.r, ST.b3, ST.p5],
+    lead: [
+      0, 0, 0, 0,  0, 0, 0, 0,  0, ST.p5, ST.b7, 0,  2, ST.b7, 0, 0,
+      0, 0, 0, 0,  0, 0, 0, 0,  0, 2, 0, 0,  0, 0, ST.b7, 2,
+    ],
+    arps: [
+      [ST.r, ST.b3, ST.p5, ST.b3],
+      [ST.r, ST.b3, ST.p5, ST.b3],
+      [ST.b2, ST.p4, ST.b6, ST.p4],
+      [ST.r, ST.b3, ST.p5, ST.b3],
+    ],
+    pads: [
+      [ST.r, ST.b3, ST.b7],
+      [ST.r, ST.b3, ST.b7],
+      [ST.b2, ST.b6, ST.b2 * 2],
+      [ST.r, ST.b3, ST.b7],
+    ],
+  };
   // menu pads: the i7 bed, and the low brooding bVI under the departure
   const MPADS = [
     [ST.r, ST.b3, ST.b7],
@@ -676,6 +1014,12 @@ const Sound = (() => {
   // stays out until you heal. Everything that sweeps the filter ramps back to
   // this, not to a hardcoded open value, so peril survives a drop.
   const restFreq = () => (peril && FLAGS.peril ? 1300 : 20000);
+
+  // The Warden's presence, fed every frame from the loop: 'walk' while he
+  // approaches, 'qte' during the chain, null otherwise. The scheduler reads it
+  // on the next step, so the arrangement guts itself on the grid — no restart,
+  // no ramp, the theme simply holds its breath.
+  function setDuel(v, kind) { duel = v; if (kind) duelKind = kind; }
 
   // One hit from death, or back off it. Called from the HUD, which already
   // tracks armor changes.
@@ -761,33 +1105,42 @@ const Sound = (() => {
       f.exponentialRampToValueAtTime(restFreq(), tw + 1.2);
     }
     const r = musicRoot;
-    const tune = ACT_TUNES[musicAct] || ACT_TUNES.street;
+    const menu = musicAct === 'menu';
+    // While the Warden is on the field HIS tune takes the decks — the anthem,
+    // in the act's own key and tempo. The walk plays the full band; the duel
+    // chain (qte) thins it — no lead, no stabs, no pads, no upper tiers, just
+    // kick and riff: focus over fanfare. The act's set returns with the kill.
+    const gut = !menu && duel && FLAGS.duel ? duel : null;
+    const tune = gut ? BOSS_TUNES[duelKind] || BOSS_TUNES[1] : ACT_TUNES[musicAct] || ACT_TUNES.street;
     const tier = musicTier();
     const s = sAbs % CYCLE;      // position inside the 8-bar form
     const cyc = (sAbs / CYCLE) | 0; // which pass through the form
     const s32 = s % 32;          // position inside the 2-bar cell
     const sec = (s / 32) | 0;    // which phrase of the period we are in
+    // an act may swing: every odd sixteenth leans late by a fraction of the
+    // step — the deck rolls under the whole band at once, nothing to align
+    if (!menu && tune.swing && s % 2 === 1) w += stepDur() * tune.swing;
     // this cycle's dice — small deviations, rolled once per pass:
-    const altTail = roll(cyc, 1, 2) === 1;      // A' ends falling instead of climbing
     const arpLift = roll(cyc, 2, 2) === 1;      // B-section arp jumps an octave
     const hatShift = roll(cyc, 3, 2) === 1;     // the hat accent moves off-beat
-    const bellTurn = roll(cyc, 4, 4) === 0;     // a rare belled echo of the turnaround
     const padHigh = roll(cyc, 5, 2) === 1;      // bII pad grows a high shimmer
-    const bassDrop = roll(cyc, 9, 3) === 0;     // B's bass walks an octave down — a verse-like pass
-    const arpSet = roll(cyc, 8, 2) === 1 ? ARPS_B : tune.arps; // the act's own figures, or the shared bank
+    const arpSet = tune.arps; // every act voices its own figures now
     // The menu runs its own club set (see the constants above): the whole
     // groove ignores the combat tiers, and everything it plays rides musicBus,
     // so one slider owns all of it. In combat roughly one pass in four
     // BREATHES: the groove strips to the bed and the form inhales — the
     // single cheapest cure for an arrangement on repeat.
-    const menu = musicAct === 'menu';
     const breathe = !menu && roll(cyc, 6, 4) === 0;
     const menuSing = roll(cyc, 10, 4) === 0; // one pass in four the turnaround sings
     // --- tier 0: the bed. Always playing, so the track never drops to silence.
-    // kick — a muffled hit on every beat (a breathing pass keeps only bar one)
-    if (s % 8 === 0 && !menu && (!breathe || s32 === 0)) tone('sine', 120, 42, 0.14, 0.4, w, musicBus);
-    // bass in eighths along the Phrygian period; A' may take its other tail —
-    // the menu swaps all of this for its own groove
+    // kick — the act's own pattern (a breathing pass keeps only the first bar
+    // of the cell), with a click of attack on top of the thump: the riff
+    // wants a kick with knuckles, not just weight
+    if (!menu && FLAGS.mxKick && tune.kick.includes(s % 16) && (!breathe || s32 < 16)) {
+      tone('sine', 125, 43, 0.13, 0.4, w, musicBus);
+      noiseHit(0.03, 2600, 1400, 0.07, 2, w, musicBus);
+    }
+    // the menu swaps everything below for its own groove
     if (menu) {
       const bar = (s / 16) | 0;         // which bar of the eight
       const chord = MFORM[bar];
@@ -815,48 +1168,84 @@ const Sound = (() => {
       // the turnaround falls home, one pass in four — a habit, not a chorus
       if (menuSing && s >= CYCLE - 16 && s % 2 === 0) {
         const ml = MLEAD[(s - (CYCLE - 16)) / 2];
-        tone('triangle', r * 16 * ml, r * 16 * ml, 0.14, 0.042, w, musicBus);
+        tone('triangle', r * 16 * ml, r * 16 * ml, 0.15, 0.038, w, musicBus, 0.015);
       }
-    } else if (s % 2 === 0) {
-      const bi = (s / 2) | 0;
-      // the act's own line; the alt tail only exists where the act wrote one
-      const m = altTail && tune.tailAlt && bi >= 24 && bi < 32 ? tune.tailAlt[bi - 24] : tune.bass[bi];
-      const oct = bassDrop && sec === 2 ? 0.5 : 1; // the departure sometimes broods low
-      if (m) tone('sawtooth', r * 2 * m * oct, r * 2 * m * oct, 0.15, breathe ? 0.10 : 0.15, w, musicBus);
+    } else if (tune.riff) {
+      // the rhythm section acts: the riff chugs in sixteenths through the A
+      // sections, the B section opens into the chorus — long anthem notes.
+      // A breathing pass keeps only the sub: the riff inhales too.
+      const chorus = sec === 2 && tune.chorus;
+      const m = (chorus || tune.riff)[s32];
+      if (m && FLAGS.mxBass) {
+        if (!breathe) tone('sawtooth', r * 2 * m, r * 2 * m, chorus ? 0.30 : 0.09, chorus ? 0.13 : 0.15, w, musicBus, chorus ? 0.02 : 0.01, chorus ? 950 : 700);
+        tone('sine', r * m, r * m, chorus ? 0.30 : 0.10, breathe ? 0.10 : 0.14, w, musicBus);
+        // the chorus sings twice: the anthem doubled an octave up, quiet —
+        // the shine on the climb without a new voice to mix around
+        if (chorus && !breathe && gut !== 'qte' && FLAGS.mxLead) tone('triangle', r * 8 * m, r * 8 * m, 0.28, 0.040, w, musicBus, 0.02);
+      }
+      // the top line answers from the gaps the chug leaves open (A sections
+      // only — in the chorus the anthem IS the lead); the cycle dice swap
+      // the falling answer for lead2's rising question, and the form's last
+      // section carries a thin doubling an octave higher — the final verse
+      // stands taller than the first
+      const leadSet = roll(cyc, 11, 2) === 1 && tune.lead2 ? tune.lead2 : tune.lead;
+      if (!chorus && !breathe && gut !== 'qte' && FLAGS.mxLead && leadSet && leadSet[s32]) {
+        const lm = leadSet[s32];
+        // the howl flag turns each lead note into a falling cry: it starts a
+        // fourth above itself and slides home — wind through maglev steel
+        const h0 = tune.howl ? lm * ST.p4 : lm;
+        tone('triangle', r * 8 * h0, r * 8 * lm, tune.howl ? 0.30 : 0.17, 0.046, w, musicBus, 0.015);
+        tone('sawtooth', r * 8 * h0, r * 8 * lm, tune.howl ? 0.24 : 0.13, 0.014, w, musicBus, 0.015);
+        if (sec === 3) tone('triangle', r * 16 * lm, r * 16 * lm, 0.15, 0.025, w, musicBus, 0.015);
+      }
+      // four sixteenths of climb into the chorus — the anthem announces
+      // itself — and the mirror: four falling out of it into the last verse
+      if (tune.chorus && !breathe && FLAGS.mxSeam && s >= 60 && s < 64) {
+        const rn = [ST.p4, ST.p5, ST.b6, ST.b7][s - 60];
+        tone('sawtooth', r * 2 * rn, r * 2 * rn, 0.08, 0.14, w, musicBus, 0.008, 700);
+      }
+      if (tune.chorus && !breathe && FLAGS.mxSeam && s >= 92 && s < 96) {
+        const fn = [2, ST.b7, ST.b6, ST.p5][s - 92];
+        tone('sawtooth', r * 2 * fn, r * 2 * fn, 0.08, 0.125, w, musicBus, 0.008, 700);
+      }
+      // the form's own turnaround: a chugged Phrygian climb through the last
+      // four sixteenths, landing on the root of the next pass
+      if (!breathe && FLAGS.mxSeam && s >= CYCLE - 4) {
+        const tn = [ST.r, ST.b2, ST.b3, ST.p4][s - (CYCLE - 4)];
+        tone('sawtooth', r * 2 * tn, r * 2 * tn, 0.07, 0.14, w, musicBus, 0.008, 700);
+        tone('sine', r * tn, r * tn, 0.08, 0.12, w, musicBus);
+      }
+    }
+    // the stab on the riff heads — a power fifth unless the act voiced its
+    // own bite (the street's set stabs a full dark triad)
+    if (!menu && gut !== 'qte' && !breathe && FLAGS.mxStab && tune.stab && tune.stab.includes(s32) && sec !== 2) {
+      for (const [i, iv] of (tune.stabNotes || [ST.r, ST.p5]).entries())
+        tone('sawtooth', r * 4 * iv, r * 4 * iv, 0.14, 0.06 - i * 0.008, w, musicBus, 0.008, 2400);
     }
     // --- tier 1: the groove locks in. Hats in sixteenths, meaner off-beat,
-    // a snare on the backbeat and the ghost kick before the second beat.
-    if (tier >= 1 && !menu && !breathe) {
-      if (s % 2 === 1) noiseHit(0.02, 9000, 7000, s % 4 === (hatShift ? 1 : 3) ? 0.05 : 0.028, 9, w);
-      if (s % 16 === 8) noiseHit(0.09, 1800, 600, 0.11, 1.5, w);
-      if (s32 === 22) tone('sine', 100, 45, 0.09, 0.2, w, musicBus);
+    // and the backbeat where the act put it — the street claps on 2 and 4,
+    // the ship swaggers on the halftime 8.
+    if (tier >= 1 && !menu && !breathe && gut !== 'qte') {
+      if (s % 2 === 1 && FLAGS.mxHats) noiseHit(0.02, 9000, 7000, s % 4 === (hatShift ? 1 : 3) ? 0.05 : 0.028, 9, w);
+      if (FLAGS.mxSnare && (tune.snare || [8]).includes(s % 16)) noiseHit(0.09, 1800, 600, 0.11, 1.5, w);
       // the turnaround: a rising snare ruff over the form's last four sixteenths
-      if (s >= CYCLE - 4) {
+      if (FLAGS.mxSnare && s >= CYCLE - 4) {
         const k = s - (CYCLE - 4);
         noiseHit(0.05, 1400 + k * 700, 800, 0.05 + k * 0.014, 2, w);
-      }
-      // ...and once in a while the turnaround rings: the bass tail echoed as
-      // small bells an octave up, like the market's own habit caught the track
-      if (bellTurn && s >= CYCLE - 8 && s % 2 === 0) {
-        const bm = tune.bass[(s / 2) | 0];
-        if (bm) tone('sine', r * 8 * bm, r * 8 * bm, 0.25, 0.045, w, musicBus);
       }
     }
     // --- tier 2: a nervous arpeggiator in each cell's second bar, its figure
     // shifting with the section's harmony
-    if (tier >= 2 && !menu && !breathe && s32 >= 16 && s % 2 === 1) {
+    if (tier >= 2 && !menu && !breathe && gut !== 'qte' && FLAGS.mxArp && s32 >= 16 && s % 2 === 1) {
       const lift = arpLift && sec === 2 ? 2 : 1; // B sometimes runs an octave up
       const arp = arpSet[sec][((s32 - 16) / 2 | 0) % 4] * lift;
-      tone('triangle', r * 16 * arp, r * 16 * arp, 0.06, arpLift && sec === 2 ? 0.036 : 0.045, w, musicBus);
+      tone('triangle', r * 16 * arp, r * 16 * arp, 0.07, arpLift && sec === 2 ? 0.032 : 0.040, w, musicBus, 0.012);
     }
-    // --- tier 3: deep flow. A counter-arp an octave up, running against the
-    // first one, and a shimmer of steel on the downbeat of each bar.
-    if (tier >= 3 && !menu && !breathe) {
-      if (s % 2 === 1) {
-        const c = ARPS2[sec][((s % 32 - 1) / 2 | 0) % 4];
-        tone('triangle', r * 32 * c, r * 32 * c, 0.05, 0.03, w, musicBus);
-      }
-      if (s % 16 === 0) noiseHit(0.25, 7000, 11000, 0.045, 6, w);
+    // --- tier 3: deep flow — a shimmer of steel on the downbeat of each bar.
+    // (The old counter-arp died with the walking bass: over a riff it was an
+    // argument, not a layer.)
+    if (tier >= 3 && !menu && !breathe && gut !== 'qte' && FLAGS.mxShim && s % 16 === 0) {
+      noiseHit(0.25, 7000, 11000, 0.045, 6, w);
     }
     // the last-pip pulse: a dull heartbeat on every beat, tempo-locked so it
     // sits inside the track rather than nagging over it
@@ -867,16 +1256,22 @@ const Sound = (() => {
     // pad: one chord per section — tension that finally MOVES. The fight keeps
     // its Phrygian i, bVI, bII, i; the menu holds the groove's own harmony,
     // and sits back — the drums are the body now.
-    if (s32 === 0) {
-      const ch = menu ? MPADS[sec] : PADS[sec];
+    // pads follow the tune on the decks; only the duel chain goes without.
+    // THE SWELL IS THE POINT: a 2.2-second chord struck with an instant
+    // attack was a grand piano landing on every cell — the "piano poking
+    // through everywhere" the solo-hunt finally caught. Now it breathes in
+    // over half a second at half the old weight: background by construction.
+    // The ear should notice the air changing, never the chord arriving.
+    if (s32 === 0 && gut !== 'qte' && FLAGS.mxPad) {
+      const ch = menu ? MPADS[sec] : (tune.pads ? tune.pads[sec] : PADS[sec]);
       const pg = 1; // with the hats gone the pad carries the menu's air again
-      tone('triangle', r * 8 * ch[0], r * 8 * ch[0], 2.2, 0.05 * pg, w, musicBus);
-      tone('triangle', r * 8 * ch[1], r * 8 * ch[1], 2.2, 0.04 * pg, w, musicBus);
-      tone('sawtooth', r * 4 * ch[2], r * 4 * ch[2], 2.2, 0.022 * pg, w, musicBus);
+      tone('triangle', r * 8 * ch[0], r * 8 * ch[0], 1.8, 0.030 * pg, w, musicBus, 0.55);
+      tone('triangle', r * 8 * ch[1], r * 8 * ch[1], 1.8, 0.024 * pg, w, musicBus, 0.60);
+      tone('sawtooth', r * 4 * ch[2], r * 4 * ch[2], 1.8, 0.013 * pg, w, musicBus, 0.65, 1200);
       // some passes let the bII chord shimmer at the top — the form's darkest
       // corner catching a little light
       if (padHigh && sec === 2) {
-        tone('sine', r * 16 * ST.b6, r * 16 * ST.b6, 2.0, 0.018, w, musicBus);
+        tone('sine', r * 16 * ST.b6, r * 16 * ST.b6, 1.6, 0.012, w, musicBus, 0.6);
       }
     }
   }
@@ -1030,6 +1425,7 @@ const Sound = (() => {
     autoTier = 0;
     musicT0 = 0;
     peril = false;
+    duel = null;
     pendingAct = null; // a queued handover dies with the set it was queued on
   }
 
@@ -1082,5 +1478,5 @@ const Sound = (() => {
   }
 
   return { ensure, sfx, note, setTier, rung, startMusic, stopMusic, transitionMusic, playingAct, setMenuAct, pauseMusic,
-           flags, setFlag, tier: musicTier, gridSec, duckMusic, dropMusic, setPeril, setSpace };
+           flags, setFlag, tier: musicTier, gridSec, duckMusic, dropMusic, setPeril, setDuel, setSpace };
 })();
