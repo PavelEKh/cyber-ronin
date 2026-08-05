@@ -10,6 +10,9 @@ const STR = {
   tagline:    ['путь клинка через неоновый город', 'a blade\u2019s path through the neon city'],
   btnStart:   ['⚔ В БОЙ', '⚔ FIGHT'],
   btnEndless: ['♾ БЕСКОНЕЧНОСТЬ', '♾ ENDLESS'],
+  wayLabel:   ['ПУТЬ', 'WAY'],
+  wayPlain:   ['ОБЫЧНЫЙ', 'PLAIN'],
+  wayStance:  ['⛩ ТРИ СТОЙКИ', '⛩ THREE STANCES'],
   btnMonthly: ['🌙 СИД МЕСЯЦА', '🌙 MONTHLY SEED'],
   btnDaily:   ['🗓 СИД ДНЯ', '🗓 DAILY SEED'],
   btnBoard:   ['🏅 ДОСКИ', '🏅 BOARDS'],
@@ -18,6 +21,7 @@ const STR = {
   tabDaily:   ['СИД ДНЯ', 'DAILY'],
   tabMonthly: ['МЕСЯЦ', 'MONTHLY'],
   tabCampaign: ['КАМПАНИЯ', 'CAMPAIGN'],
+  tabMaster:  ['ТРИ СТОЙКИ', 'THREE STANCES'],
   tabEndless: ['БЕСКОНЕЧНОСТЬ', 'ENDLESS'],
   btnShop:    ['💾 ПРОШИВКА', '💾 FIRMWARE'],
   btnAch:     ['🏆 ТРОФЕИ', '🏆 TROPHIES'],
@@ -141,6 +145,8 @@ const HELP_PARAGRAPHS = [
    `Hit an enemy only when it is <b>within reach</b> (ground markers). Swinging at air — a short <b>stun</b>, a combo reset, and while you hang the <b>crowd speeds up</b>.`],
   [`<b>Дрон</b> умирает с одного удара. <b>Панк</b> после удара перелетает на другую сторону — добей там. <b>Щитовик</b> держит три удара. <b>Метатель</b> кидает сюрикен — отбей его обратно.`,
    `A <b>drone</b> dies in one hit. A <b>punk</b> flips to the other side after a hit — finish him there. A <b>shielder</b> takes three hits. A <b>thrower</b> hurls a shuriken — deflect it back.`],
+  [`<b>«Путь трёх стоек»</b> — сложный путь. Со второго акта у клинка открываются три <b>стойки</b> — переключай их цифрами 1·2·3, W/S или пробелом (на геймпаде A, на телефоне — полоса по центру экрана). <b>КЛИНОК</b> режет точно и несёт вперёд, <b>ВИХРЬ</b> бьёт всех в зоне разом, но платит одним звеном серии, <b>ПРОБОЙ</b> вкладывает двойной вес в одного. Каждого из толпы берут только две стойки из трёх: дрона не достаёт пробой, панк ныряет под вихрь, щитовика не берёт клинок. Неверная стойка не убивает — она просто отталкивает, и ты теряешь темп.`,
+   `The <b>Way of Three Stances</b> is the harder road. From the second act on the blade holds three <b>stances</b> — pick them with 1·2·3, cycle with W/S or Space (A on a pad, the middle strip on a phone). <b>BLADE</b> cuts precisely and carries you forward, <b>SWEEP</b> takes everyone in reach at once but pays a single link of the streak, <b>PIERCE</b> puts double weight into one body. Each of the crowd answers to only two of the three: the thrust goes past a drone, a punk ducks the arc, a plate turns the cut aside. The wrong stance does not kill — it only shoves, and the tempo is what you lose.`],
   [`Элита ломает ритм: <b>фехтовальщик</b> парирует — жди зелёного окна; <b>маятник</b> дважды перелетает дорогу — останови его третьим ударом; <b>близнецы</b> умирают только от одновременного удара обеих кнопок.`,
    `Elites break the rhythm: the <b>fencer</b> parries — wait for the green window; the <b>pendulum</b> crosses the road twice — stop him with the third hit; the <b>twins</b> die only to both buttons at once.`],
   [`<b>Мимик</b> выглядит как дрон, но у зоны вспыхивает истинная суть: <b>плотный</b> — настоящий, бей; <b>полый и холодный</b> — призрак, <b>не бей</b> (сам растает, а удар сквозь него — промах). Проверяет концентрацию, а не привычку.`,
@@ -162,6 +168,10 @@ function applyLang() {
   const en = lang !== 'ru'; // for the binary assets (logo, help page) every pack language reads the English side
   document.documentElement.lang = lang;
   document.title = en ? 'Cyber Ronin' : 'Кибер-ронин';
+  for (const el of document.querySelectorAll('[data-i18n-title]')) {
+    const s = STR[el.dataset.i18nTitle];
+    if (s) el.title = L(...s); // icons carry their name in the tooltip and the pad cursor
+  }
   for (const el of document.querySelectorAll('[data-i18n]')) {
     const pair = STR[el.dataset.i18n];
     if (pair) el.textContent = L(...pair); // L consults the overlay pack, falls back to English
@@ -253,15 +263,16 @@ function renderMenu() {
         'one shared endless seed for the whole month, firmware offline — the record is waves')
     : L('открывается после победы во всех шести актах', 'unlocks after clearing all six acts');
   // the daily: retries are free, the board keeps the day's best
-  const daily = state.meta.daily;
+  const daily = state.meta[Game.dailySlot(state, Game.wayHard(state))];
   const played = !!(daily && daily.date === todayStr() && daily.done);
   $('btn-daily').title =
     L('общий сид, прошивка отключена — на доску идёт лучший результат дня',
       'a shared seed, firmware offline — the board keeps the day’s best');
   // the board button exists only while the online piece is configured
   $('btn-board').classList.toggle('hidden', !Board.enabled());
-  // the champion's frame: today's №1, their tape, and the standing challenge
-  Board.champ($('menu-champ'), todayStr(), () => startGame('daily'));
+  // the champion's frame: today's №1 on the board of the way you are holding
+  Board.champ($('menu-champ'), Board.wayKey(todayStr(), Game.wayHard(state)), () => startGame('daily'));
+  renderWay();
   // the journal stays off the menu until it has something in it: a fresh player
   // gets the menu exactly as before, and the button appearing after the first
   // death is itself the first beat of the story
@@ -311,7 +322,7 @@ function renderBoardScreen() {
     $('board-next').disabled = boardBack === 0;
     $('board-prev').disabled = boardBack >= BOARD_BACK_MAX[boardTab];
   }
-  Board.view($('menu-board'), key);
+  Board.view($('menu-board'), Board.wayKey(key, Game.wayHard(state)));
 }
 
 function renderShop() {
@@ -321,17 +332,26 @@ function renderShop() {
   list.innerHTML = '';
   for (const m of Game.META) {
     const lvl = Game.metaLvl(state, m.id);
+    // A way's own firmware stays on the shelf either way — greyed out and
+    // saying why, rather than vanishing: a shop that hides its stock teaches
+    // nothing, and a player who never sees the line never learns it exists.
+    const offWay = m.way === 'stance' && !Game.wayHard(state);
     const cost = Game.metaCost(state, m);
     const maxed = lvl >= m.cap;
     const row = document.createElement('div');
-    row.className = 'shop-row';
+    row.className = 'shop-row' + (offWay ? ' off-way' : '');
+    const note = offWay
+      ? `<div class="way-note">${L('только на пути трёх стоек', 'sold on the way of three stances only')}</div>`
+      : '';
     row.innerHTML =
       `<div class="icon">${m.icon}</div>` +
-      `<div class="body"><div class="name">${Game.T(m, 'name')}</div><div class="desc">${Game.T(m, 'desc')}</div></div>` +
+      `<div class="body"><div class="name">${Game.T(m, 'name')}</div><div class="desc">${Game.T(m, 'desc')}</div>${note}</div>` +
       `<div class="lvl">${'▮'.repeat(lvl)}${'▯'.repeat(m.cap - lvl)}</div>` +
-      `<button class="buy${maxed ? ' maxed' : ''}" ${maxed || state.meta.credits < cost ? 'disabled' : ''}>` +
-      `${maxed ? L('МАКС', 'MAX') : Game.fmt(cost) + ' ㋕'}</button>`;
-    if (!maxed) {
+      `<button class="buy${maxed ? ' maxed' : ''}" ${maxed || offWay || state.meta.credits < cost ? 'disabled' : ''}>` +
+      `${maxed ? L('МАКС', 'MAX') : offWay ? '⛩' : Game.fmt(cost) + ' ㋕'}</button>`;
+    if (offWay) row.querySelector('.buy').title = L('переключи путь в меню, чтобы купить',
+      'switch the way in the menu to buy this');
+    if (!maxed && !offWay) {
       row.querySelector('.buy').addEventListener('click', () => {
         if (Game.buyMeta(state, m.id)) {
           Sound.ensure(); Sound.sfx('buy');
@@ -607,7 +627,97 @@ function showMutatorBanner(delayed) {
 // ---------- HUD ----------
 let hudCombo = -1, hudArmor = '', hudExec = '', hudMut = '';
 
+// Стойки: имя, цвет и то, кого эта грамматика берёт. Порядок классов совпадает
+// с порядком точек в HUD — дрон, панк, щитовик.
+const STANCE_STR = {
+  blade:  ['КЛИНОК', 'BLADE'],
+  sweep:  ['ВИХРЬ', 'SWEEP'],
+  pierce: ['ПРОБОЙ', 'PIERCE'],
+};
+const STANCE_COLOR = { blade: '#26d6ff', sweep: '#ff5c9e', pierce: '#ffb42d' };
+const STANCE_CLASSES = ['drone', 'punk', 'shield'];
+
+function doStance(idx) {
+  if (paused || replay || state.phase !== 'combat') return;
+  Sound.ensure();
+  const ev = Game.setStance(state, idx);
+  if (ev.type !== 'stance') return; // cooling down, or already held — no sound, no lie
+  Sound.sfx('stance' + (idx + 1));
+  Pad.impact(0.2, 25);
+  Scene.stanceFlash(STANCE_COLOR[ev.stance]);
+  renderStance();
+}
+
+// The ring is the simulation's business: it knows which grammars this run has
+// earned and steps over the rest. Counting the index here left W and S dead the
+// moment the next stance in line happened to be locked.
+function doStanceCycle(dir) {
+  if (paused || replay || state.phase !== 'combat') return;
+  Sound.ensure();
+  const ev = Game.cycleStance(state, dir);
+  if (ev.type !== 'stance') return;
+  Sound.sfx('stance' + (ev.idx + 1));
+  Pad.impact(0.2, 25);
+  Scene.stanceFlash(STANCE_COLOR[ev.stance]);
+  renderStance();
+}
+
+// The chips are built once and then only re-lit: they are the legend, the
+// keypad hint and — on a phone — the buttons, so they live for the whole run.
+function buildStanceChips() {
+  const box = $('hud-stance');
+  box.innerHTML = '';
+  Game.STANCES.forEach((st, i) => {
+    const chip = document.createElement('div');
+    chip.className = 'stance-chip';
+    chip.style.setProperty('--chip', STANCE_COLOR[st]);
+    box.appendChild(chip);
+    chip.innerHTML = `<span class="key">${i + 1}</span><span class="nm"></span>` +
+      `<span class="dots">${STANCE_CLASSES.map(() => '<i></i>').join('')}</span>`;
+    // a tap on a chip must never double as a strike on that half of the screen
+    chip.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); doStance(i); });
+  });
+  renderStance();
+}
+
+function renderStance() {
+  const cur = state.run ? state.run.stance : 'blade';
+  const box = $('hud-stance');
+  // the first act has one grammar and says nothing about the others
+  box.classList.toggle('hidden', !Game.stancesOn(state.run));
+  if (!Game.stancesOn(state.run)) return;
+  if (box.childElementCount !== Game.STANCES.length) { buildStanceChips(); return; }
+  const every = Game.MOMENTUM_EVERY[Game.metaLvl(state, 'mmomentum')] || 0;
+  const charged = every > 0 && state.run && (state.run.sameStance + 1) % every === 0;
+  Game.STANCES.forEach((st, i) => {
+    const chip = box.children[i];
+    chip.classList.toggle('hidden', !Game.stanceUnlocked(state.run, i));
+    chip.classList.toggle('on', st === cur);
+    // Blade Momentum: the held grammar lights up when the next press is charged
+    chip.classList.toggle('charged', charged && st === cur);
+    chip.querySelector('.nm').textContent = L(...STANCE_STR[st]);
+    const dots = chip.querySelector('.dots').children;
+    STANCE_CLASSES.forEach((type, j) => {
+      dots[j].className = Game.stanceBites(type, st) ? '' : 'off';
+      dots[j].style.color = Scene.enemyColor(type);
+      dots[j].title = Game.T(Game.ENEMY_TYPES[type], 'name');
+    });
+  });
+}
+
+let shownStance = null; // last stance painted — the HUD repaints only on change
+
 function updateHud() {
+  const stanceKey = state.run ? state.run.stance + state.run.act + '|' + state.run.sameStance : null;
+  if (stanceKey !== shownStance) {
+    shownStance = stanceKey;
+    renderStance();
+  }
+  if (state.run) $('hud-stance').classList.toggle('cooling', state.run.stanceCd > 0);
+  // the vocabulary is named on the act that opens it — but only once the act's
+  // own banner has left the screen, so the two never talk over each other
+  const bannerUp = !$('act-banner').classList.contains('hidden');
+  if (!cinema && !bannerUp && Game.stancesOn(state.run)) teachStancesOnce();
   const r = state.run;
   if (!r) return;
   const maxHp = Game.maxHp(state);
@@ -1043,6 +1153,7 @@ function handleStrikeEvent(ev) {
         Pad.impact(0.45, 55);
         hitstop = Math.max(hitstop, 0.045);
       }
+      if (ev.surge) Scene.floatText(L('ИНЕРЦИЯ', 'MOMENTUM'), ev.side, ev.dist + 45, '#bfefff');
       if (ev.vamp) {
         Scene.floatText(L('+БРОНЯ', '+ARMOR'), ev.side, 60, '#2dff8f');
         Sound.sfx('vamp');
@@ -1111,6 +1222,24 @@ function handleStrikeEvent(ev) {
       Pad.impact(0.7, 90);
       hitstop = Math.max(hitstop, 0.07);
       break;
+    case 'glance':
+      // the press connected and did nothing: the body is shoved back and the
+      // hand is holding the wrong grammar. Said out loud until the player has
+      // switched a few times on their own.
+      Scene.slash(ev.side, false);
+      Scene.burst(ev.side, ev.dist, ev.held ? '#7fd0ff' : '#7f8ca8', ev.held ? 10 : 5);
+      Sound.sfx('glance', 1, sidePan(ev.side, ev.dist));
+      if (ev.held) Scene.floatText(L('ЗАМЕР', 'HELD'), ev.side, ev.dist, '#7fd0ff');
+      if ((state.meta.stats.stanceSwitches || 0) < Game.TEACH_STANCE) {
+        // name the way OUT, not just the failure: the two grammars that do bite
+        // this body, in the order the chips sit on screen
+        const works = Game.STANCES
+          .map((st, i) => (Game.stanceBites(ev.enemy, st) ? `${i + 1} ${L(...STANCE_STR[st])}` : null))
+          .filter(Boolean).join(L('  ИЛИ  ', '  OR  '));
+        Scene.floatText(L('СТОЙКА НЕ БЕРЁТ ЕГО', 'THIS STANCE WON\u2019T BITE'), ev.side, ev.dist, '#9fb8d8');
+        Scene.floatText(works, ev.side, ev.dist + 55, '#cfe6ff');
+      }
+      break;
     case 'ghostMiss':
       // an execute stole the press's target: a light slash, no penalty, no drama
       Scene.slash(ev.side, false);
@@ -1159,6 +1288,14 @@ function handleStrikeEvent(ev) {
           -ev.side, 210, '#ff4de0');
       }
       (ev.events || []).forEach(handleTickEvent);
+      break;
+    case 'qteGlance':
+      // the right side in the wrong word: the chain does not move, and the
+      // clock does — the cost of reading the grammar late
+      Scene.slash(ev.side, false);
+      Scene.burst(ev.side, ev.dist, '#9fb8d8', 6);
+      Sound.sfx('glance', 1, sidePan(ev.side, ev.dist));
+      Scene.floatText(String(ev.gram + 1), ev.side, 150, STANCE_COLOR[Game.STANCES[ev.gram]]);
       break;
     case 'bossStagger':
       Scene.slash(ev.side, true);
@@ -1347,6 +1484,14 @@ function handleTickEvent(ev) {
       break;
     case 'fencerMiss':
       Sound.sfx('throw', 1, sidePan(ev.side, ev.dist)); // the whoosh of a lunge into thin air
+      break;
+    case 'sealTell':
+      // the first sealed bodies name their own rule: a mark that answers one
+      // grammar and no other is not guessable, so it is said once
+      if ((state.meta.stats.sealKills || 0) < Game.TEACH_STANCE) {
+        Scene.floatText(L('ПЕЧАТЬ', 'SEAL'), ev.side, ev.dist, '#ffffff');
+        Scene.floatText(L('ТОЛЬКО ЭТА СТОЙКА', 'THIS STANCE ONLY'), ev.side, ev.dist + 55, '#cfe6ff');
+      }
       break;
     case 'mimicReveal':
       // the tell: a short click as its true nature surfaces. The phantom gets a
@@ -1630,6 +1775,13 @@ document.addEventListener('keydown', e => {
   if (cinema) { endCinema(); return; } // any key skips the travelling shot
   if (replay && code === 'Space') { cycleReplaySpeed(); return; }
   if (code === 'Escape') { pressEscape(); return; }
+  // stances: the digits pick one outright, Space walks the ring for hands that
+  // would rather keep a thumb on one key
+  if (code === 'Digit1' || code === 'Numpad1') { doStance(0); return; }
+  if (code === 'Digit2' || code === 'Numpad2') { doStance(1); return; }
+  if (code === 'Digit3' || code === 'Numpad3') { doStance(2); return; }
+  if (code === 'Space' || code === 'KeyS' || code === 'ArrowDown') { doStanceCycle(1); return; }
+  if (code === 'KeyW' || code === 'ArrowUp') { doStanceCycle(-1); return; }
   // hidden wave skip — the run stops counting toward records from here on
   if (code === 'KeyK' && e.ctrlKey && e.shiftKey) {
     e.preventDefault();
@@ -1757,12 +1909,50 @@ function handlePadAction(a) {
   }
   if (a === 'left') doStrike(-1);
   else if (a === 'right') doStrike(1);
+  else if (a === 'confirm' || a === 'down') doStanceCycle(1); // A / d-pad down walks the ring
+  else if (a === 'alt' || a === 'up') doStanceCycle(-1);
 }
 
 window.addEventListener('gamepadconnected', () => {
   popBanner('🎮', L('ГЕЙМПАД', 'GAMEPAD'),
     L('крестовина или бамперы — удары · START — пауза', 'd-pad or bumpers strike · START pauses'));
 });
+
+// ---------- The way ----------
+// A standing choice that colours every road below it. Changing it mid-menu is
+// free; it only ever reads at the moment a run starts.
+function refreshMenuChamp() {
+  if (!Board.enabled || !Board.enabled()) return;
+  Board.champ($('menu-champ'), Board.wayKey(todayStr(), Game.wayHard(state)), () => startGame('daily'));
+}
+
+function renderWay() {
+  const stance = Game.wayHard(state);
+  const row = $('btn-way');
+  row.classList.toggle('stance', stance);
+  row.querySelector('.val').textContent = L(...STR[stance ? 'wayStance' : 'wayPlain']);
+  row.title = stance
+    ? L('нажми, чтобы вернуться на обычный путь', 'click for the plain way')
+    : L('нажми, чтобы взять три стойки', 'click to take the three stances');
+  const hint = $('way-hint');
+  hint.classList.toggle('stance', stance);
+  hint.textContent = stance
+    ? L('сложный путь: три стойки, и каждого врага берут не все',
+        'the harder road: three stances, and not every one of them bites')
+    : L('стороны и зона — как задумано с самого начала',
+        'sides and reach — the game as it was meant');
+  // the daily champion frame belongs to the way you are looking at
+  refreshMenuChamp();
+}
+
+function setWay(way) {
+  Game.setWay(state, way);
+  saveState();
+  Sound.sfx('ui');
+  renderWay();
+}
+
+$('btn-way').addEventListener('click', () => setWay(Game.wayHard(state) ? 'plain' : 'stance'));
 
 // Screen buttons
 $('btn-start').addEventListener('click', () => startGame());
@@ -1918,6 +2108,34 @@ $('btn-quit').addEventListener('click', quitToMenu);
 
 // ---------- Achievements: periodic check and toasts ----------
 let achTimer = 0;
+// The first run names the vocabulary once. Everything else about stances is
+// readable from the chips, but "there are three of these and you choose" has to
+// be said out loud a single time — after that the screen speaks for itself.
+// Each grammar is named on the act that hands it over, and never twice. The
+// vocabulary arrives one word at a time — three rules in one breath was the
+// load that made the whole thing hard.
+function teachStancesOnce() {
+  const touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  const how = touch ? L('жми стойку внизу экрана', 'tap a stance below')
+                    : L('цифры 1 · 2 · 3', 'keys 1 · 2 · 3');
+  const names = n => Game.STANCES.slice(0, n).map((st, i) => `${i + 1} ${L(...STANCE_STR[st])}`).join('   ');
+  if (!state.meta.stanceTaught && Game.stancesOn(state.run)) {
+    state.meta.stanceTaught = true;
+    saveState();
+    popBanner(L('КЛИНОК ВСПОМНИЛ ВИХРЬ', 'THE BLADE REMEMBERS THE SWEEP'), names(2),
+      L(`${how} — пластина не берётся точным резом, а цифра над врагом подскажет`,
+        `${how} — a plate turns the cut aside, and the digit above a body names the answer`));
+    return;
+  }
+  if (!state.meta.pierceTaught && Game.stanceUnlocked(state.run, 2)) {
+    state.meta.pierceTaught = true;
+    saveState();
+    popBanner(L('КЛИНОК ВСПОМНИЛ ПРОБОЙ', 'THE BLADE REMEMBERS THE THRUST'), names(3),
+      L('тяжёлый выпад бьёт вдвое, но мимо юрких',
+        'the heavy thrust lands twice over — and goes past the nimble'));
+  }
+}
+
 const toastQueue = [];
 let toastBusy = false;
 

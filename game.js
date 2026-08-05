@@ -103,7 +103,8 @@ const STEP = 1 / 60;
 // rejected loudly instead. Bumping the epoch retires stored replays (board
 // ROWS survive). The full version shows in the menu corner.
 const VERSION_MAJOR = 1;
-const VERSION_REPLAY = 3; // 1.3: an execute on a twin takes the pair, and the chord charges the execute counter
+const VERSION_REPLAY = 4; // 1.4: stances — the two buttons keep their sides and change what a press means
+                          // (1.3: an execute on a twin takes the pair, and the chord charges the execute counter)
                           // (1.2: the combo multiplier caps at ×3.5 — score favors depth over one unbroken tail)
                           // (1.1: the early-press buffer — a swing at an empty zone waits for its target)
 const VERSION_COSMETIC = 0;
@@ -251,6 +252,104 @@ const ENEMY_TYPES = {
   twin:    { name: 'Близнец',      en: { name: 'Twin' },    hits: 1, speed: 70, credits: 3, score: 45, twin: true },   // the pair dies only to an L+R chord
   mimic:   { name: 'Мимик',        en: { name: 'Mimic' },   hits: 1, speed: 118, credits: 3, score: 35, mimic: true }, // looks like a drone; flashes real or phantom at the last second
 };
+// ---------- Stances ----------
+// The road only ever asked ONE question — which side. A stance is the second
+// question, and unlike everything else in this game it is asked every second
+// rather than every wave: the two buttons keep their sides and change what a
+// press MEANS. Three stances, cycled with one input; switching is instant but
+// cannot be spammed (see STANCE_CD), so a stance is a state you commit to.
+//
+//   blade  — the precise cut. One target, and a kill carries the hero forward.
+//   sweep  — the wide arc. Every damageable body in reach on that side takes a
+//            hit, but the whole swing pays a single link of combo: crowd
+//            control bought with the streak rather than with kills.
+//   pierce — the heavy thrust. One target, two hits' worth of damage, and it
+//            throws what survives much further back.
+const STANCES = ['blade', 'sweep', 'pierce'];
+// The first act stays a primer: one grammar, one question, nothing to read but
+// the road. The blade learns the other two when the market opens — by then the
+// player has the sides in their hands and can afford a second question.
+const STANCE_ACT = 2;  // the market opens the sweep — two grammars, one choice
+const PIERCE_ACT = 4;  // the ship hands over the thrust — the vocabulary completes
+// The seal. With every body answering two grammars of three, ANY PAIR of
+// stances covered the whole road and the third was decoration — the vocabulary
+// was three words wide and two words deep. A sealed body answers exactly ONE
+// grammar, named on its skin, so the full set finally has to be carried. Seals
+// only appear once all three are in hand (SEAL_ACT), or one could name a word
+// the run has not learned.
+const SEAL_ACT = PIERCE_ACT;
+const SEAL_CHANCE = 0.22; // share of eligible bodies that come sealed
+const SEAL_PER_WAVE = 2;  // never a wall of them: the seal is a demand, not a tax
+const SEALABLE = ['drone', 'punk', 'shield']; // the rank and file; elites keep their own rules
+const stancesOn = r => !!r && !!r.hard && r.act >= STANCE_ACT;
+// The standing choice of way. 'stance' walks the three grammars; anything else
+// (including an old save that never heard of it) walks plainly.
+const wayHard = s => !!s && !!s.meta && s.meta.way === 'stance';
+function setWay(s, way) { s.meta.way = way === 'stance' ? 'stance' : 'plain'; }
+// The stances this run may hold right now. Handing all three over at once was
+// three rules arriving in one breath; they come one at a time instead, and the
+// early pair (blade against the light, sweep against the plate) is a question
+// with one answer rather than two.
+function stanceUnlocked(r, idx) {
+  if (idx === 0) return true;
+  if (idx === 1) return stancesOn(r);
+  return !!r && r.act >= PIERCE_ACT;
+}
+// Which stance answers this body, of the ones the run actually holds. The
+// simulation, the renderer's marker and both bots read this one function, so
+// what the screen promises is exactly what the blade does.
+// A stance this run actually holds, optionally avoiding one. A Warden sealed
+// with a grammar the blade has not been given yet is an unopenable duel — the
+// run would stall at his feet until he ended it.
+function pickUnlockedStance(s, r, avoid) {
+  const pool = [];
+  for (let i = 0; i < STANCES.length; i++) {
+    if (stanceUnlocked(r, i) && i !== avoid) pool.push(i);
+  }
+  if (!pool.length) return avoid !== undefined ? avoid : 0;
+  return pool[Math.floor(rnd(s) * pool.length) % pool.length];
+}
+
+function stanceFor(r, body) {
+  for (let i = 0; i < STANCES.length; i++) {
+    if (stanceUnlocked(r, i) && bodyBites(body, STANCES[i])) return i;
+  }
+  return -1;
+}
+const STANCE_CD = 0.08; // sec: just enough to swallow a double-tap, never a tax on reacting
+const PIERCE_DMG = 2;
+const PIERCE_PUSH = 90; // the heavy thrust throws survivors far
+
+// Which stance the basic crowd ANSWERS to. Every one of them dies to two of the
+// three and shrugs the third off — not immune, just unhurt: the press connects,
+// the body is shoved back, and the stubborn stance costs tempo instead of the
+// run. The elites are absent on purpose: a fencer's window, a chord and a
+// mimic's bluff are rules enough for one enemy, and stacking a second reading
+// on top of them is load, not depth. Their profile is `null` — damaged by all.
+//
+//   drone/mimic — nimble: the heavy thrust goes right past them
+//   punk        — ducks under a wide arc
+//   shielder    — the plate turns a precise cut aside
+const STANCE_ARMOR = {
+  drone:   { pierce: false },
+  mimic:   { pierce: false },
+  punk:    { sweep: false },
+  shield:  { blade: false },
+};
+// Does this stance hurt this body at all? Anything not in the table takes
+// damage from everything — elites are governed by their own rules.
+function stanceBites(type, stance) {
+  const prof = STANCE_ARMOR[type];
+  return !prof || prof[stance] !== false;
+}
+
+// The entity-aware form: a seal overrides the type's matrix entirely — the mark
+// on the skin is the whole truth about what can hurt this one.
+function bodyBites(e, stance) {
+  if (e && e.seal !== undefined) return STANCES[e.seal] === stance;
+  return stanceBites(e && e.type ? e.type : e, stance);
+}
+
 // Mimic: disguised as an ordinary drone, it reveals its true nature only as it
 // nears the zone — a solid flash means REAL (strike it, or it hurts you), a hollow
 // one means PHANTOM (do NOT strike; it dissipates harmlessly, but a swing through it
@@ -275,6 +374,7 @@ const CHORD_WIN = 0.18;
 // buttons (and the chord window is far too short to hint after the first press),
 // and a lying QTE link needs the opposite side. Both are taught in-frame until
 // the player has performed them this many times, then the words retire for good.
+const TEACH_STANCE = 4;  // "the stance did not bite" is invisible until named — say it, then stop
 const TEACH_CHORDS = 3;
 const TEACH_GLITCH = 3;
 const TEACH_MIMIC = 3;  // "don't strike a phantom" can't be watched — it's learned once, then taught in-frame
@@ -583,7 +683,17 @@ const META = [
     en: { name: 'Repair Dock',       desc: 'Crossing into a new act repairs +1 armor' } },
   { id: 'mreroll', icon: '🎲', name: 'Пересборка',       desc: 'Раз за забег пересобрать предложенные импланты', baseCost: 350, cap: 2, growth: 1.6,
     en: { name: 'Reassembly',        desc: 'Once per run, reroll the offered implants' } },
+  // The stance way's own firmware: offered only to a blade that carries three
+  // grammars, because neither line means anything without them.
+  { id: 'mriposte', icon: '⛩️', name: 'Ответный ход', desc: 'Скольжение примораживает врага на 0.4с', baseCost: 450, cap: 2, growth: 1.7, way: 'stance',
+    en: { name: 'Riposte',           desc: 'A glance freezes the body for 0.4s' } },
+  { id: 'mmomentum', icon: '🌀', name: 'Инерция клинка', desc: 'Каждое 8-е нажатие без смены стойки бьёт сквозь броню и на урон больше', baseCost: 500, cap: 3, growth: 1.7, way: 'stance',
+    en: { name: 'Blade Momentum',    desc: 'Every 8th press without changing stance bites through armor for +1 damage' } },
 ];
+// How long a glance holds a body, by riposte level — and how many presses of
+// one grammar it takes to charge momentum. Both read straight off meta.
+const RIPOSTE_HOLD = [0, 0.4, 0.7];
+const MOMENTUM_EVERY = [0, 8, 6, 4];
 
 // ---------- State ----------
 function createState(seed = 1) {
@@ -597,6 +707,7 @@ function createState(seed = 1) {
       stats: {
         runs: 0, bestAct: 0, bestScore: 0, bestCombo: 0, totalKills: 0, wins: 0,
         reflects: 0, chords: 0, glitchHits: 0, bossKills: 0, fencerKills: 0, execKills: 0, perfectWaves: 0,
+        stanceSwitches: 0, sealKills: 0,
         mimicReads: 0, bestEndless: 0,
       },
       // story: unlocked journal fragments, and how many times each Warden kind
@@ -633,22 +744,26 @@ function normalizeState(saved) {
       }
     }
     // the daily board: a string date and sane numbers, or nothing at all
-    const d = saved.meta.daily;
-    if (d && typeof d.date === 'string') {
-      const num = v => (Number.isFinite(v) ? Math.max(0, v) : 0);
-      s.meta.daily = {
-        date: d.date, score: num(d.score), act: num(d.act), wave: num(d.wave),
-        victory: !!d.victory, done: !!d.done,
-      };
+    const num = v => (Number.isFinite(v) ? Math.max(0, v) : 0);
+    for (const slot of ['daily', 'dailyS']) {
+      const d = saved.meta[slot];
+      if (d && typeof d.date === 'string') {
+        s.meta[slot] = {
+          date: d.date, score: num(d.score), act: num(d.act), wave: num(d.wave),
+          victory: !!d.victory, done: !!d.done,
+        };
+      }
     }
+    if (saved.meta.way === 'stance') s.meta.way = 'stance';
     // the monthly ledger, by the same rule
-    const mo = saved.meta.monthly;
-    if (mo && typeof mo.month === 'string') {
-      const num = v => (Number.isFinite(v) ? Math.max(0, v) : 0);
-      s.meta.monthly = {
-        month: mo.month, score: num(mo.score), act: num(mo.act), wave: num(mo.wave),
-        done: !!mo.done,
-      };
+    for (const slot of ['monthly', 'monthlyS']) {
+      const mo = saved.meta[slot];
+      if (mo && typeof mo.month === 'string') {
+        s.meta[slot] = {
+          month: mo.month, score: num(mo.score), act: num(mo.act), wave: num(mo.wave),
+          done: !!mo.done,
+        };
+      }
     }
     // story, id by id: an old save simply has none of it, and a broken one
     // cannot smuggle in fragments that no longer exist
@@ -709,15 +824,21 @@ function startDaily(s, dateStr) {
   s.rngState = dailySeed(dateStr);
   startRun(s, 'daily');
   // a fresh date opens a fresh board entry; the same date keeps the day's best
-  if (!s.meta.daily || s.meta.daily.date !== dateStr) {
-    s.meta.daily = { date: dateStr, score: 0, act: 1, wave: 1, victory: false, done: false };
+  const dk = dailySlot(s, s.run.hard);
+  if (!s.meta[dk] || s.meta[dk].date !== dateStr) {
+    s.meta[dk] = { date: dateStr, score: 0, act: 1, wave: 1, victory: false, done: false };
   }
   return true;
 }
 // The day's ledger takes a finished run only if it beats what already stands —
 // mirrored by the worker's own merge rule, so client and board agree.
+// One ledger per way: a plain daily and a stance daily on the same date are two
+// different games and must never overwrite each other's best.
+const dailySlot = (s, hard) => (hard ? 'dailyS' : 'daily');
+const monthlySlot = (s, hard) => (hard ? 'monthlyS' : 'monthly');
+
 function recordDaily(s, r, victory) {
-  const d = s.meta.daily;
+  const d = s.meta[dailySlot(s, r.hard)];
   if (!r.daily || r.cheated || !d) return;
   if (d.done && r.score <= d.score) return;
   Object.assign(d, { score: r.score, act: r.act, wave: r.wave, victory: !!victory, done: true });
@@ -731,15 +852,16 @@ function recordDaily(s, r, victory) {
 function startMonthly(s, monthStr) {
   s.rngState = dailySeed('m:' + monthStr);
   startRun(s, 'monthly');
-  if (!s.meta.monthly || s.meta.monthly.month !== monthStr) {
-    s.meta.monthly = { month: monthStr, score: 0, act: 1, wave: 1, done: false };
+  const mk = monthlySlot(s, s.run.hard);
+  if (!s.meta[mk] || s.meta[mk].month !== monthStr) {
+    s.meta[mk] = { month: monthStr, score: 0, act: 1, wave: 1, done: false };
   }
   return true;
 }
 // The month's ledger keeps the deepest run; equal depth falls to score —
 // the exact tie rule the worker's endless metric applies.
 function recordMonthly(s, r) {
-  const m = s.meta.monthly;
+  const m = s.meta[monthlySlot(s, r.hard)];
   if (!r.monthly || r.cheated || !m) return;
   const oldWaves = (m.act - 1) * WAVES_PER_ACT + m.wave;
   if (m.done && (endlessWave(r) < oldWaves || (endlessWave(r) === oldWaves && r.score <= m.score))) return;
@@ -765,6 +887,11 @@ function startRun(s, mode) {
     planRng: (seed ^ 0x9E3779B9) | 0, // the plan stream's own state — see rndPlan
     ticks: 0, // completed fixed steps — the replay timeline's integer clock
     endless: mode === 'endless' || mode === 'monthly', // the monthly IS an endless run
+    // The WAY is orthogonal to the mode: any of the four roads (campaign,
+    // endless, daily, monthly) can be walked plainly or under the three
+    // grammars. It is a standing choice in meta, so every start reads it and
+    // no combination needs a button of its own.
+    hard: wayHard(s),
     daily: mode === 'daily',
     monthly: mode === 'monthly',
     hp: 0, // set below once run exists (maxHp reads implants from run)
@@ -773,6 +900,9 @@ function startRun(s, mode) {
     execHits: 0,    // Protocol EXECUTE hit counter (not reset by misses)
     chainCombo: 0,  // hits toward the Arc Discharge bolt: accumulate after install, reset with the combo
     lastStrikeSide: 0, // side of the previous press — kept for mechanics that read press order
+    stance: 'blade',   // the hand's current grammar (see STANCES)
+    stanceCd: 0,       // sec until the stance may change again
+    sameStance: 0,     // connected presses since the last switch — Blade Momentum's charge
     twinPress: null,   // first press of a twin chord: {pair, side, at}
     lastPress: null,   // the previous press of ANY kind: {side, at} — the zone-wide chord reads it
     buf: [],           // early presses waiting for a target: {side, t, prev} — see PRESS_BUFFER
@@ -811,6 +941,7 @@ function startRun(s, mode) {
     v: REPLAY_EPOCH,
     seed,
     mode: mode || 'campaign',
+    hard: s.run.hard, // the way is part of the rules a ghost was played under
     upgrades: { ...s.meta.upgrades },
     a: [], // actions: {t, s: side} strikes · {c: idx} implant choices · {rr: 1} rerolls
   };
@@ -923,6 +1054,20 @@ function buildWave(s) {
     const phantom = type === 'mimic' && rndPlan(r) < MIMIC_PHANTOM;
     q.push({ at: thisArr - travel, arr: thisArr, type, side: thisSide, dist, phantom });
   }
+  // Seals go on in a second pass, after the crowd is choreographed: the rolls
+  // sit at the tail of the planning stream, so a seed keeps the wave it always
+  // had and only gains marks. Only the rank and file can be sealed, only once
+  // the whole vocabulary is in hand, and never more than a couple a wave.
+  if (r.act >= SEAL_ACT) {
+    let left = SEAL_PER_WAVE;
+    for (const e of q) {
+      if (left <= 0) break;
+      if (!SEALABLE.includes(e.type)) continue;
+      if (rndPlan(r) >= SEAL_CHANCE) continue;
+      e.seal = Math.floor(rndPlan(r) * STANCES.length) % STANCES.length;
+      left--;
+    }
+  }
   // first spawn at second 0.8 of the wave
   const minAt = Math.min(...q.map(e => e.at));
   for (const e of q) { e.at += 0.8 - minAt; e.arr += 0.8 - minAt; }
@@ -945,6 +1090,7 @@ function tick(s, dt) {
   r.time += dt;
   r.waveT += dt;
   if (r.stun > 0) r.stun = Math.max(0, r.stun - dt);
+  if (r.stanceCd > 0) r.stanceCd = Math.max(0, r.stanceCd - dt);
 
   // The renderer's interpolation anchor: where every body stood when the
   // previous tick ended. Taken before any movement or spawning this tick; the
@@ -956,7 +1102,7 @@ function tick(s, dt) {
   const sm = speedMult(r) * cryoMult(s) * mutSpeed(r) * surgeMult(r);
   const rg = range(s);
 
-  spawnFromQueue(r);
+  spawnFromQueue(r, ev);
   stepSteelRain(s, ev, dt, sm);
   expireTwinWindow(s, ev);
   stepWalkers(s, ev, dt, rg, sm);
@@ -974,7 +1120,7 @@ function tick(s, dt) {
   return ev;
 }
 
-function spawnFromQueue(r) {
+function spawnFromQueue(r, ev) {
   while (r.queue.length && r.queue[0].at <= r.waveT) {
     const q = r.queue.shift();
     const t = ENEMY_TYPES[q.type];
@@ -983,8 +1129,9 @@ function spawnFromQueue(r) {
       dist: q.dist, // distance assigned during wave planning
       // blitz: everyone is one hit softer (but never below one)
       hits: mutHas(r, 'blitz') ? Math.max(1, t.hits - 1) : t.hits,
-      thrown: false, pair: q.pair, phantom: q.phantom,
+      thrown: false, pair: q.pair, phantom: q.phantom, seal: q.seal,
     });
+    if (q.seal !== undefined && ev) ev.push({ type: 'sealTell', side: q.side, dist: q.dist, seal: q.seal });
   }
 }
 
@@ -1144,6 +1291,8 @@ function stepWalkers(s, ev, dt, rg, sm) {
       continue;
     }
     if (qteLock) continue;
+    // a body held by a riposte stands where the glance left it
+    if (e.hold > 0) { e.hold = Math.max(0, e.hold - dt); continue; }
     const t = ENEMY_TYPES[e.type];
     // the type's own per-frame step (fencer stance, mimic flash, thrower wind-up);
     // truthy means it handled this frame and the generic advance below is skipped
@@ -1362,6 +1511,8 @@ function clearWave(s, ev) {
 
 function advanceWave(s) {
   const r = s.run;
+  r.stance = 'blade'; // every act opens in the plain grammar
+  r.stanceCd = 0;
   if (r.wave >= WAVES_PER_ACT) {
     r.act++;
     r.wave = 1;
@@ -1462,6 +1613,24 @@ function genSeq(s, len) {
   const seq = [];
   for (let i = 0; i < len; i++) seq.push(rnd(s) < 0.5 ? -1 : 1);
   return seq;
+}
+
+// The duel's grammar demands. A chain used to ask one question — which side —
+// and the stance system simply stood aside for the climax of every act. Some
+// links now name a grammar too: the side is still the side, but the blade has
+// to be holding the right word when it lands. Not every link, and never two in
+// a row — the chain is fast, and a duel of nothing but switching would be a
+// typing test. The demand is drawn from what the run actually holds.
+const QTE_GRAM_CHANCE = 0.35;
+function genGrams(s, r, seq) {
+  if (!stancesOn(r)) return null;
+  const g = new Array(seq.length).fill(undefined);
+  for (let i = 1; i < seq.length; i++) {
+    if (g[i - 1] !== undefined) continue; // never back to back
+    if (rnd(s) >= QTE_GRAM_CHANCE) continue;
+    g[i] = pickUnlockedStance(s, r);
+  }
+  return g.some(x => x !== undefined) ? g : null;
 }
 
 // ---------- Per-type behaviour registry ----------
@@ -1748,6 +1917,35 @@ const BOSS_BEHAVIOR = {
   },
 };
 
+// Cycle the stance. Like a strike it is a player action, so it goes on the tape
+// — a ghost that swung in the wrong grammar would diverge on the first press.
+// The tape carries the RESULTING stance, not the direction that reached it —
+// a number one player typed on a keypad and another cycled to must replay the
+// same way.
+function setStance(s, idx) {
+  if (s.phase !== 'combat') return { type: 'idle' };
+  const r = s.run;
+  const next = STANCES[idx];
+  if (!next || next === r.stance || r.stanceCd > 0 || !stanceUnlocked(r, idx)) return { type: 'idle' };
+  r.stance = next;
+  r.stanceCd = STANCE_CD;
+  r.sameStance = 0; // the momentum lived in the grammar you just left
+  s.meta.stats.stanceSwitches = (s.meta.stats.stanceSwitches || 0) + 1;
+  if (r.rec) r.rec.a.push({ t: r.ticks, st: idx });
+  return { type: 'stance', stance: next, idx };
+}
+
+function cycleStance(s, dir = 1) {
+  if (s.phase !== 'combat') return { type: 'idle' };
+  const r = s.run;
+  let i = STANCES.indexOf(r.stance);
+  for (let step = 0; step < STANCES.length; step++) {
+    i = ((i + dir) % STANCES.length + STANCES.length) % STANCES.length;
+    if (stanceUnlocked(r, i)) return setStance(s, i); // the ring skips what the run has not earned
+  }
+  return { type: 'idle' };
+}
+
 function strike(s, side) {
   if (s.phase !== 'combat') return { type: 'idle' };
   const r = s.run;
@@ -1802,6 +2000,13 @@ function strikeCore(s, side, prevSide, canBuffer) {
   // ---------- Warden: the QTE shred ----------
   const b = r.boss;
   if (b && b.state === 'qte') {
+    // the link's grammar answers before its side: a correct press in the wrong
+    // word rings off the chain — no progress, no fault, and the clock keeps
+    // running. The punishment for reading it late is the time it costs.
+    if (side === b.seq[b.idx] && b.gram && b.gram[b.idx] !== undefined &&
+        STANCES[b.gram[b.idx]] !== r.stance) {
+      return { type: 'qteGlance', side, idx: b.idx, gram: b.gram[b.idx], dist: b.dist };
+    }
     if (side === b.seq[b.idx]) {
       // a correct press on a lying link is the proof the inversion was understood —
       // the in-frame hint retires once the player has done it TEACH_GLITCH times
@@ -1816,7 +2021,8 @@ function strikeCore(s, side, prevSide, canBuffer) {
         // the Warden leaps to the SHOWN side; on a glitch link that is the wrong one
         b.side = qteShown(b, b.idx);
         return { type: 'qteHit', side, idx: b.idx, len: b.seq.length, dist: b.dist,
-                 nextSide: b.side, nextGlitch: !!(b.glitch && b.glitch[b.idx]) };
+                 nextSide: b.side, nextGlitch: !!(b.glitch && b.glitch[b.idx]),
+                 nextGram: b.gram ? b.gram[b.idx] : undefined };
       }
       b.phase++;
       if (b.phase >= b.phases) {
@@ -1850,6 +2056,7 @@ function strikeCore(s, side, prevSide, canBuffer) {
     b.state = 'walk';
     b.dist = Math.max(b.dist, BOSS_RETREAT);
     b.seq = null;
+    b.gram = null;
     b.glitch = null;
     b.windup = 0;
     r.qteFails++;
@@ -1871,6 +2078,7 @@ function strikeCore(s, side, prevSide, canBuffer) {
     b.state = 'qte';
     b.seq = genSeq(s, BOSS_QTE_LEN(r.act, b.phase));
     b.seq[0] = side;
+    b.gram = genGrams(s, r, b.seq);
     b.glitch = null;
     const bb = BOSS_BEHAVIOR[b.kind];
     if (bb && bb.qteStart) bb.qteStart({ s, r, b });
@@ -1885,7 +2093,8 @@ function strikeCore(s, side, prevSide, canBuffer) {
     bumpCombo(r);
     if (chainEvery(s)) r.chainCombo++; // the opening press counts like any chain press
     return { type: 'qteStart', side, idx: 1, len: b.seq.length, dist: b.dist,
-             nextSide: b.side, nextGlitch: !!(b.glitch && b.glitch[1]) };
+             nextSide: b.side, nextGlitch: !!(b.glitch && b.glitch[1]),
+             nextGram: b.gram ? b.gram[1] : undefined };
   }
   // The slash is an arc: it deflects ALL shurikens in the zone on this side
   // and simultaneously hits the nearest enemy if it is in the zone too.
@@ -1986,6 +2195,21 @@ function strikeCore(s, side, prevSide, canBuffer) {
   }
 
   const targetDist = enemy.dist; // victim's distance before the hit (a punk swap changes it)
+  // The arc's targets are taken BEFORE the first body falls: killing rolls the
+  // next one in the column backwards, and a swing resolved one victim at a time
+  // would shove the tail of the crowd out of its own reach mid-motion. One
+  // swing, one snapshot. Bodies with a rule of their own stay out of it — a
+  // chord is not an arc, a parried stance is still a parry, a hologram is not
+  // solid.
+  const sweepTargets = [];
+  if (stancesOn(r) && r.stance === 'sweep') {
+    for (const o of r.enemies) {
+      if (o.dead || o === enemy || o.kind === 'proj' || o.kind === 'obj') continue;
+      if (o.side !== side || o.dist > rg) continue;
+      if (o.phantom || o.type === 'twin' || o.fstate === 'guard') continue;
+      sweepTargets.push(o);
+    }
+  }
   const res = hitEnemy(s, enemy, side, false);
   // An execute on a twin takes the PAIR: "kills any enemy" cannot leave half an
   // enemy on the road. The old path killed one and left an orphan that broke
@@ -2006,7 +2230,25 @@ function strikeCore(s, side, prevSide, canBuffer) {
       if (r.twinPress && r.twinPress.pair === enemy.pair) r.twinPress = null;
     }
   }
-  // dash: a kill moves the hero to the victim, a non-killing hit is a short lunge
+  // The wide arc. Everything else of the crowd standing in reach on this side
+  // takes the same swing — but the arc pays ONE link of combo for the whole
+  // motion (the extras go in quiet), so sweeping is crowd control bought with
+  // score. Bodies with a rule of their own are left out of it: a chord is not
+  // an arc, a parried stance is still a parry, and a hologram is not solid.
+  const extras = [];
+  if (res.type !== 'glance') {
+    for (const o of sweepTargets) {
+      if (o.dead) continue;
+      const sub = hitEnemy(s, o, side, false, true);
+      if (sub.type !== 'glance') extras.push(sub);
+    }
+  }
+  if (extras.length) res.swept = extras;
+  // dash: a kill moves the hero to the victim, a non-killing hit is a short
+  // lunge — the same in every grammar. The arc used to plant the feet, which
+  // made one of the three move the world differently from the other two for no
+  // reason the hand could feel; the blade travels the same way whatever it is
+  // doing at the end of the swing.
   if (res.type === 'kill') {
     const m = applyDash(s, side, Math.max(0, targetDist - DASH_STOP));
     if (m) { res.dash = m; res.dist = targetDist - m; }
@@ -2055,19 +2297,47 @@ function nearestWalker(r, side, skip, extra) {
   return best;
 }
 
-function hitEnemy(s, e, side, isChain) {
+function hitEnemy(s, e, side, isChain, quiet) {
   const r = s.run;
-  bumpCombo(r);
-  if (chainEvery(s)) r.chainCombo++;
+  // The stance gate. A body the current grammar cannot hurt still FEELS the
+  // press — it is shoved back, the streak survives — but nothing else happens:
+  // the wrong stance costs tempo and ground, never the run. Automatic effects
+  // (the chain bolt, ownerless steel, the fencer bonus) pass through it: they
+  // are not presses and must not surprise.
+  // ...but an armed EXECUTE goes through anything, the stance included: the
+  // protocol promises a kill on every Nth hit, and a charge spent skidding off
+  // a plate would be a promise broken on a technicality.
+  const execArmed = berserkOn(s) && (r.execHits + 1) % EXEC_EVERY === 0;
+  // Blade Momentum: loyalty to one grammar charges the hand, and the charged
+  // press bites anything — the reward for NOT switching, against a road that
+  // keeps asking you to.
+  const momEvery = MOMENTUM_EVERY[metaLvl(s, 'mmomentum')] || 0;
+  const surge = !isChain && momEvery > 0 && stancesOn(r) && (r.sameStance + 1) % momEvery === 0;
+  if (!isChain && !execArmed && !surge && stancesOn(r) && !bodyBites(e, r.stance)) {
+    e.dist = Math.min(SPAWN_DIST, e.dist + PUSHBACK);
+    // Riposte: the wrong grammar stops being a lost beat and becomes a tool —
+    // the body it skidded off stands frozen while you deal with the other side.
+    const hold = RIPOSTE_HOLD[metaLvl(s, 'mriposte')] || 0;
+    if (hold > 0) e.hold = hold;
+    return { type: 'glance', side, enemy: e.type, dist: e.dist, stance: r.stance, held: hold > 0 };
+  }
+  if (!isChain && stancesOn(r)) r.sameStance++;
+  if (!quiet) {
+    bumpCombo(r);
+    if (chainEvery(s)) r.chainCombo++;
+  }
   let exec = false;
   if (berserkOn(s)) {
     r.execHits++;
     exec = r.execHits % EXEC_EVERY === 0;
   }
-  e.hits = exec ? 0 : e.hits - 1;
+  // the heavy thrust lands twice over; every other grammar cuts once
+  const dmg = (!isChain && stancesOn(r) && r.stance === 'pierce' ? PIERCE_DMG : 1) + (surge ? 1 : 0);
+  e.hits = exec ? 0 : e.hits - dmg;
   let res;
   if (e.hits <= 0) {
     if (exec) s.meta.stats.execKills++;
+    if (e.seal !== undefined) s.meta.stats.sealKills = (s.meta.stats.sealKills || 0) + 1;
     if (ENEMY_TYPES[e.type].fencer && e.fstate === 'open') s.meta.stats.fencerKills++;
     const healed = killEnemy(s, e);
     if (exec) {
@@ -2075,7 +2345,7 @@ function hitEnemy(s, e, side, isChain) {
       r.execAt = r.time;
       r.execSide = side;
     }
-    res = { type: 'kill', side, enemy: e.type, dist: e.dist, combo: r.combo, chain: isChain, exec };
+    res = { type: 'kill', side, enemy: e.type, dist: e.dist, combo: r.combo, chain: isChain, exec, surge };
     if (healed) res.vamp = true;
   } else {
     if (ENEMY_TYPES[e.type].swap && !isChain) {
@@ -2091,9 +2361,10 @@ function hitEnemy(s, e, side, isChain) {
         if (o.dist >= e.dist - 1 && o.dist < e.dist + FOLLOW_GAP) e.dist = o.dist + FOLLOW_GAP;
       }
     } else {
-      e.dist = Math.min(SPAWN_DIST, e.dist + PUSHBACK);
+      const push = !isChain && stancesOn(r) && r.stance === 'pierce' ? PIERCE_PUSH : PUSHBACK;
+      e.dist = Math.min(SPAWN_DIST, e.dist + push);
     }
-    res = { type: 'hit', side, enemy: e.type, dist: e.dist, combo: r.combo, chain: isChain };
+    res = { type: 'hit', side, enemy: e.type, dist: e.dist, combo: r.combo, chain: isChain, surge };
   }
   // Arc Discharge: every Nth combo hit bolts the nearest same-side enemy
   // BEYOND reach — everything inside the zone belongs to the player's presses,
@@ -2263,6 +2534,7 @@ function replayState(rec) {
     }
   }
   s.rngState = rec.seed | 0;
+  setWay(s, rec.hard ? 'stance' : 'plain'); // a ghost replays under the rules it was played by
   startRun(s, rec.mode === 'campaign' ? undefined : rec.mode);
   s.run.rec = null;
   return s;
@@ -2285,6 +2557,12 @@ function replayFeed(s, rec, cursor, onStrike) {
       if (act.rr) { i++; rerollOffers(s); continue; }
       break; // the next action is a strike — it waits for combat
     }
+    if (s.phase === 'combat' && act.st !== undefined && act.t === s.run.ticks) {
+      i++;
+      s.run.stanceCd = 0; // the tape's timing is the truth — never gate a recorded switch
+      setStance(s, act.st);
+      continue;
+    }
     if (s.phase === 'combat' && act.s !== undefined && act.t === s.run.ticks) {
       i++;
       const res = strike(s, act.s);
@@ -2305,7 +2583,8 @@ function packRec(rec) {
     v: rec.v, seed: rec.seed, mode: rec.mode, upgrades: rec.upgrades,
     T: rec.T, end: rec.end,
     a: rec.a.map(x =>
-      x.s !== undefined ? [x.t, x.s] : x.c !== undefined ? ['c', x.c] : ['r']),
+      x.s !== undefined ? [x.t, x.s] : x.c !== undefined ? ['c', x.c]
+      : x.st !== undefined ? ['s', x.t, x.st] : ['r']),
   };
 }
 function unpackRec(p) {
@@ -2319,7 +2598,8 @@ function unpackRec(p) {
     // choice actions carry no tick — replayFeed applies them whenever the
     // choice screen holds, exactly as it does for the in-memory form
     a: p.a.map(x =>
-      x[0] === 'c' ? { t: 0, c: x[1] } : x[0] === 'r' ? { t: 0, rr: 1 } : { t: x[0], s: x[1] }),
+      x[0] === 'c' ? { t: 0, c: x[1] } : x[0] === 'r' ? { t: 0, rr: 1 }
+      : x[0] === 's' ? { t: x[1], st: x[2] } : { t: x[0], s: x[1] }),
   };
 }
 
@@ -2419,7 +2699,11 @@ const Game = {
   GUARD_REPEL, HACK_TIMER, JAM_WINDUP, JAM_PROJ,
   anyArrGap, KILL_PUSH, DASH_STOP, DASH_HIT, applyDash,
   THROW_WINDUP, projSpeedMult, FENCER_GUARD, FENCER_OPEN, CHORD_WIN,
-  TEACH_CHORDS, TEACH_GLITCH, TEACH_MIMIC, MIMIC_FLASH, MIMIC_REVEAL_K,
+  TEACH_CHORDS, TEACH_GLITCH, TEACH_MIMIC, TEACH_STANCE,
+  setWay, wayHard, dailySlot, monthlySlot, RIPOSTE_HOLD, MOMENTUM_EVERY,
+  STANCES, STANCE_CD, STANCE_ACT, PIERCE_ACT, STANCE_ARMOR, stanceBites, bodyBites, stancesOn, stanceUnlocked, stanceFor,
+  SEAL_ACT, SEAL_CHANCE, SEAL_PER_WAVE,
+  PIERCE_DMG, cycleStance, setStance, MIMIC_FLASH, MIMIC_REVEAL_K,
   BOSS_SPEED, BOSS_RETREAT, BOSS_QTE_LEN, BOSS_QTE_PRESS, BOSS_PHASES, BOSS_CREDITS, BOSS_SCORE,
   bossKind, qteShown, GUST_MULT, GUST_TIME, GLITCH_CHANCE,
   BOSS_KINDS, ARMORER_THROW_MIN, ARMORER_BURN_FLOOR, ARMORER_BURN_CAP,

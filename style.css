@@ -59,6 +59,67 @@ body::after {
 
 #hud-armor { display: flex; gap: 5px; min-width: 180px; }
 
+/* The stance chips: the game's second vocabulary, always on screen. Dim ones
+   are the grammars you are not holding; the lit one carries the class dots —
+   which bodies it actually bites. On touch they grow into real buttons and
+   move down to where a thumb lives. */
+#hud-stance {
+  position: absolute;
+  top: 44px; left: 20px;
+  display: flex; gap: 6px;
+  pointer-events: auto;
+}
+.stance-chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 8px;
+  font-size: 11px; letter-spacing: 2px;
+  color: #7e8db0;
+  background: rgba(10, 16, 34, 0.5);
+  border: 1px solid rgba(126, 141, 176, 0.25);
+  border-radius: 4px;
+  cursor: pointer;
+  touch-action: none;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.stance-chip .key { opacity: 0.55; font-weight: 700; }
+.stance-chip.on {
+  color: var(--chip);
+  border-color: var(--chip);
+  background: rgba(10, 16, 34, 0.8);
+  box-shadow: 0 0 12px -2px var(--chip);
+}
+.stance-chip .dots { display: none; gap: 3px; margin-left: 2px; }
+.stance-chip.on .dots { display: flex; }
+.stance-chip .dots i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor; box-shadow: 0 0 5px currentColor;
+}
+.stance-chip .dots i.off { opacity: 0.15; box-shadow: none; }
+/* the switch is on cooldown — the chips say so instead of silently ignoring */
+#hud-stance.cooling .stance-chip { opacity: 0.5; }
+/* Blade Momentum charged: the held grammar breathes white — the next press
+   goes through anything */
+.stance-chip.charged {
+  color: #ffffff;
+  border-color: #ffffff;
+  box-shadow: 0 0 16px -2px #ffffff;
+  animation: chip-charged 0.7s infinite;
+}
+@keyframes chip-charged { 50% { opacity: 0.6; } }
+
+@media (pointer: coarse) {
+  /* fixed, not absolute: #hud is a top strip with no height, so "bottom" inside
+     it would pin the chips back under the armour instead of down by the thumbs */
+  #hud-stance {
+    position: fixed;
+    top: auto; bottom: 12px; left: 50%;
+    transform: translateX(-50%);
+    gap: 10px;
+    z-index: 12;
+  }
+  .stance-chip { padding: 10px 14px; font-size: 13px; }
+}
+
 /* the touch pause: phones have neither ESC nor START — a quiet corner button
    under the armor pips, visible only to coarse pointers so a desktop never
    sees it. pointer-events restored: the HUD itself is click-through. */
@@ -180,6 +241,95 @@ body::after {
 }
 #hud-mut-icon { font-size: 14px; letter-spacing: 0; }
 @keyframes mut-pulse { 50% { opacity: 0.62; } }
+
+/* Firmware from the other way: on the shelf, visibly out of reach, and saying
+   why. Hiding it would keep the line a secret from the player it is for. */
+.shop-row.off-way { opacity: 0.5; }
+.shop-row.off-way .icon { filter: grayscale(1); }
+.way-note {
+  margin-top: 3px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--gold);
+}
+
+/* ============ Menu: way toggle and icon row ============ */
+
+/* The way is a switch, not a road: two segments, the held one lit. It sits
+   above the four roads because it colours all of them. */
+/* The way row: a settings line above the roads. Label and value share one box
+   that always spans the column, so no translation can make it look crooked —
+   the value simply grows or shrinks inside its own half. */
+.way-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: 36px;
+  padding: 0 14px;
+  margin-bottom: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--dim);
+  background: rgba(10, 8, 24, 0.6);
+  border: 1px solid rgba(108, 122, 156, 0.35);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, color 0.15s;
+}
+.way-row .val {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cyan);
+  text-shadow: 0 0 10px rgba(38, 214, 255, 0.5);
+}
+.way-row:hover, .way-row.pad-focus { border-color: rgba(38, 214, 255, 0.6); }
+/* the harder way wears the gold of the Wardens, and the row wears it too */
+.way-row.stance { border-color: rgba(255, 180, 45, 0.55); box-shadow: 0 0 14px -4px var(--gold); }
+.way-row.stance .val { color: var(--gold); text-shadow: 0 0 10px rgba(255, 180, 45, 0.55); }
+
+#way-hint {
+  margin: -2px 0 8px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  line-height: 1.4;
+  color: var(--dim);
+  text-align: center;
+}
+#way-hint.stance { color: var(--gold); opacity: 0.85; }
+
+/* Everything that is not a road: icons, because the eye finds a shape faster
+   than it reads a seventh label. */
+#menu-icons {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.icon-btn {
+  width: 46px; height: 42px;
+  font-size: 19px;
+  line-height: 1;
+  color: var(--text);
+  background: rgba(10, 8, 24, 0.6);
+  border: 1px solid rgba(108, 122, 156, 0.3);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+}
+.icon-btn:hover, .icon-btn.pad-focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 12px -3px var(--cyan);
+  transform: translateY(-1px);
+}
+@media (max-width: 560px) {
+  .icon-btn { width: 40px; height: 38px; font-size: 17px; }
+  .way-btn { padding: 6px 11px; font-size: 11px; letter-spacing: 2px; }
+}
 
 /* ============ Act banner ============ */
 

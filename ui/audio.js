@@ -392,6 +392,25 @@ const Sound = (() => {
         noiseHit(0.45, 900, 2600, 0.10, 3);
         noiseHit(0.45, 2600, 700, 0.08, 3, 0.22);
         break;
+      // the three grammars, each announced by its own short signature: the
+      // blade rings thin and high, the sweep is a low airy wash, the thrust is
+      // a blunt knock. Short and dark — this fires a lot.
+      case 'glance': // steel skidding off the wrong answer: dull, short, no ring
+        noiseHit(0.12, 2600, 700, 0.09, 2);
+        tone('sine', 190, 120, 0.09, 0.10, 0, null, 0.004, 900);
+        break;
+      case 'stance1':
+        tone('triangle', 1320, 1760, 0.10, 0.05, 0, null, 0.004);
+        noiseHit(0.06, 7000, 9000, 0.03, 6);
+        break;
+      case 'stance2':
+        noiseHit(0.22, 1200, 3200, 0.06, 2.5);
+        tone('sine', 300, 460, 0.16, 0.05, 0, null, 0.01);
+        break;
+      case 'stance3':
+        tone('sine', 150, 92, 0.16, 0.22, 0, null, 0.004);
+        noiseHit(0.09, 900, 400, 0.05, 2);
+        break;
       case 'qtestart': // duel: the shing of a drawn blade and a low stance pulse
         noiseHit(0.2, 5000, 9000, 0.25, 3);
         tone('sine', 70, 45, 0.35, 0.4);

@@ -29,6 +29,11 @@
 <!-- HUD over the scene during combat -->
 <div id="hud" class="hidden">
   <div id="hud-armor" title="Броня"></div>
+  <!-- The stances. Three chips, always visible: they ARE the legend (the player
+       reads the whole vocabulary without a tutorial), the keypad hint (1-2-3),
+       and on a touch screen the buttons themselves — one tap picks a stance,
+       no cycling through the one you did not want. -->
+  <div id="hud-stance"></div>
   <div id="hud-combo"><span id="combo-num">0</span><span id="combo-label" data-i18n="combo">КОМБО</span><span id="combo-mult" class="hidden"></span><div id="hud-exec" class="hidden">💀 <span id="exec-count">0/10</span></div></div>
   <div id="hud-info">
     <div id="hud-act">АКТ I · ВОЛНА 1</div>
@@ -75,19 +80,36 @@
       <span class="logo-slash"></span>
     </div>
     <div class="subtitle" data-i18n="tagline">путь клинка через неоновый город</div>
+    <!-- The WAY: which grammar the blade walks. Orthogonal to the road below,
+         so four buttons cover eight games instead of eight buttons covering
+         eight games. -->
     <div class="menu-buttons">
+      <!-- The way is a setting, not a road: one row, label left, current value
+           right. Two fixed segments could not survive six languages — every
+           translation has its own length, and something always overflowed. -->
+      <button id="btn-way" class="way-row">
+        <span class="lbl" data-i18n="wayLabel">ПУТЬ</span>
+        <span class="val"></span>
+      </button>
+      <!-- one line saying what the chosen way IS — including, plainly, that one
+           of them is the harder road -->
+      <div id="way-hint"></div>
       <button id="btn-start" class="cyber-btn primary" data-i18n="btnStart">⚔ В БОЙ</button>
-      <button id="btn-endless" class="cyber-btn" data-i18n="btnEndless">♾ БЕСКОНЕЧНОСТЬ</button>
-      <button id="btn-monthly" class="cyber-btn" data-i18n="btnMonthly">🌙 СИД МЕСЯЦА</button>
       <button id="btn-daily" class="cyber-btn" data-i18n="btnDaily">🗓 СИД ДНЯ</button>
-      <button id="btn-board" class="cyber-btn hidden" data-i18n="btnBoard">🏅 ДОСКА ДНЯ</button>
-      <button id="btn-shop" class="cyber-btn" data-i18n="btnShop">💾 ПРОШИВКА</button>
-      <button id="btn-ach" class="cyber-btn" data-i18n="btnAch">🏆 ТРОФЕИ</button>
-      <button id="btn-log" class="cyber-btn" data-i18n="btnLog">📓 ЖУРНАЛ</button>
-      <button id="btn-help" class="cyber-btn" data-i18n="btnHelp">❔ КАК ИГРАТЬ</button>
-      <button id="btn-settings" class="cyber-btn" data-i18n="btnSettings">⚙ НАСТРОЙКИ</button>
+      <button id="btn-monthly" class="cyber-btn" data-i18n="btnMonthly">🌙 СИД МЕСЯЦА</button>
+      <button id="btn-endless" class="cyber-btn" data-i18n="btnEndless">♾ БЕСКОНЕЧНОСТЬ</button>
+    </div>
+    <!-- everything that is not a road: one row of icons, names on hover and
+         under the gamepad cursor -->
+    <div id="menu-icons">
+      <button id="btn-shop" class="icon-btn" data-i18n-title="btnShop">💾</button>
+      <button id="btn-ach" class="icon-btn" data-i18n-title="btnAch">🏆</button>
+      <button id="btn-log" class="icon-btn" data-i18n-title="btnLog">📓</button>
+      <button id="btn-board" class="icon-btn" data-i18n-title="btnBoard">🏅</button>
+      <button id="btn-help" class="icon-btn" data-i18n-title="btnHelp">❔</button>
+      <button id="btn-settings" class="icon-btn" data-i18n-title="btnSettings">⚙</button>
       <!-- desktop shell only: unhidden when the Electron wrapper sets CR_SHELL -->
-      <button id="btn-exit" class="cyber-btn hidden" data-i18n="btnExit">🚪 ВЫХОД</button>
+      <button id="btn-exit" class="icon-btn hidden" data-i18n-title="btnExit">🚪</button>
     </div>
     <!-- The champion's frame: the daily seed's №1 — watch the tape, take the
          crown. Filled by Board.champ(); hidden while the online piece is off

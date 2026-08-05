@@ -56,13 +56,19 @@ const Board = (() => {
   }
 
   // a monthly board key ('YYYY-MM') — the daily's long-form sibling
-  const isMonth = key => /^\d{4}-\d{2}$/.test(key);
+  // The way lives in the key: a stance run never lands on a plain board, and a
+  // date keeps its shape under the prefix so the archive walker still parses it.
+  const STANCE_PREFIX = 's:';
+  const bare = key => (key.startsWith(STANCE_PREFIX) ? key.slice(STANCE_PREFIX.length) : key);
+  const isStanceKey = key => key.startsWith(STANCE_PREFIX);
+  const wayKey = (key, hard) => (hard ? STANCE_PREFIX + key : key);
+  const isMonth = key => /^\d{4}-\d{2}$/.test(bare(key));
 
-  const boardTitle = key =>
-    key === 'endless' ? L('ДОСКА БЕСКОНЕЧНОСТИ', 'ENDLESS BOARD') :
-    key === 'campaign' ? L('ДОСКА КАМПАНИИ', 'CAMPAIGN BOARD') :
-    isMonth(key) ? L('ТАБЛИЦА МЕСЯЦА', 'BOARD OF THE MONTH') :
-    L('ТАБЛИЦА ДНЯ', 'BOARD OF THE DAY');
+  const boardTitle = key => (isStanceKey(key) ? '⛩ ' : '') + (b =>
+    b === 'endless' ? L('ДОСКА БЕСКОНЕЧНОСТИ', 'ENDLESS BOARD') :
+    b === 'campaign' ? L('ДОСКА КАМПАНИИ', 'CAMPAIGN BOARD') :
+    isMonth(b) ? L('ТАБЛИЦА МЕСЯЦА', 'BOARD OF THE MONTH') :
+    L('ТАБЛИЦА ДНЯ', 'BOARD OF THE DAY'))(bare(key));
 
   // ---------- Rendering ----------
   // Built with createElement/textContent on purpose: player names are the one
@@ -92,7 +98,7 @@ const Board = (() => {
       }
       r.appendChild(name);
       // the endless-family boards count waves; the others show how deep the run went
-      r.appendChild(div('detail', key === 'endless' || isMonth(key)
+      r.appendChild(div('detail', bare(key) === 'endless' || isMonth(key)
         ? Game.F('волна {n}', 'wave {n}', { n: (row.act - 1) * Game.WAVES_PER_ACT + row.wave })
         : (row.victory ? '✓' : `${L('акт', 'act')} ${row.act}`)));
       r.appendChild(div('score', Game.fmt(row.score)));
@@ -176,10 +182,10 @@ const Board = (() => {
     // a sealed recording of the exact numbers the board will show
     const tape = r.rec && r.rec.T !== undefined ? Game.packRec(r.rec) : null;
     if (r.daily) {
-      const d = s.meta.daily;
+      const d = s.meta[Game.dailySlot(s, r.hard)];
       if (!d || !d.done) return null;
       return {
-        key: d.date,
+        key: wayKey(d.date, r.hard),
         entry: {
           score: d.score, act: Math.max(1, d.act), wave: Math.max(1, d.wave), victory: !!d.victory,
           // an earlier run today may hold the best — its tape was sent back then
@@ -188,13 +194,13 @@ const Board = (() => {
       };
     }
     if (r.monthly) {
-      const m = s.meta.monthly;
+      const m = s.meta[Game.monthlySlot(s, r.hard)];
       if (!m || !m.done) return null;
       // the tape rides along only when THIS run holds the month's best
       const best = (m.act - 1) * Game.WAVES_PER_ACT + m.wave;
       const mine = (r.act - 1) * Game.WAVES_PER_ACT + r.wave;
       return {
-        key: m.month,
+        key: wayKey(m.month, r.hard),
         entry: {
           score: m.score, act: Math.max(1, m.act), wave: Math.max(1, m.wave), victory: false,
           replay: mine === best && r.score === m.score ? tape : undefined,
@@ -202,7 +208,7 @@ const Board = (() => {
       };
     }
     return {
-      key: r.endless ? 'endless' : 'campaign',
+      key: wayKey(r.endless ? 'endless' : 'campaign', r.hard),
       entry: { score: r.score, act: r.act, wave: r.wave, victory: s.phase === 'victory', replay: tape || undefined },
     };
   }
@@ -318,5 +324,5 @@ const Board = (() => {
     }
   }
 
-  return { enabled, runEnd, submitQuiet, view, champ, getName, setName };
+  return { enabled, wayKey, isStanceKey, runEnd, submitQuiet, view, champ, getName, setName };
 })();

@@ -63,6 +63,45 @@ const Sprites = (() => {
     }
   }
 
+  // Pre-scaled strips for the DENSE sheets, one entry per animation per size.
+  //
+  // The whole sprite path rests on a whole-number scale (see SPR in scene.js): a
+  // source pixel then lands on screen as an exact N-by-N block whatever
+  // fractional x the figure stands on. A dense sheet quietly broke that. Its
+  // cell is 192 where the slot is 96, so its effective factor is scale/2 — half
+  // of everyone else's, and whole only when the scale is even. At scale 3 it is
+  // 1.5: nearest-neighbour then doubles every second row, and WHICH rows it
+  // doubles moves with the figure, so the silhouette boils frame to frame. Below
+  // 1 — a stepped-down quality ladder — it drops rows outright and thin details
+  // (the blade, the scarf's edge) blink.
+  //
+  // So resize once, into a strip whose cell IS the destination size, and blit
+  // that 1:1 from then on. Whole factors keep the nearest-neighbour edge; the
+  // fractional ones take a smooth resize, which is soft but STILL, and still
+  // beats a figure that shimmers. Only dense sheets go through here: at a whole
+  // factor the direct path is already exact, and caching every enemy at every
+  // size would cost tens of megabytes to fix nothing.
+  // One cell size at a time: a dense sheet is only ever drawn at the hero's own
+  // scale, so the size changes on a resize and not within a frame. Two sizes
+  // alternating frame to frame would rebuild the strips twice a frame.
+  const strips = new Map();
+  let stripCell = 0;
+  function prescaled(type, anim, d, cell) {
+    if (cell !== stripCell) { strips.clear(); stripCell = cell; }
+    const key = type + '/' + anim;
+    let cv = strips.get(key);
+    if (cv) return cv;
+    cv = document.createElement('canvas');
+    cv.width = cell * d.frames;
+    cv.height = cell;
+    const c = cv.getContext('2d');
+    c.imageSmoothingEnabled = cell % d.w !== 0;
+    c.imageSmoothingQuality = 'high';
+    c.drawImage(d.img, 0, 0, d.w * d.frames, d.w, 0, 0, cell * d.frames, cell);
+    strips.set(key, cv);
+    return cv;
+  }
+
   // A sprite frame: (x, feetY) — the feet point, face ±1 — look direction,
   // glow — neon halo color (a canvas shadow around opaque pixels).
   function draw(c2d, type, anim, idx, x, feetY, scale, face, glow) {
@@ -75,11 +114,43 @@ const Sprites = (() => {
     c2d.translate(x, feetY);
     c2d.scale(face || 1, 1);
     if (glow) { c2d.shadowColor = glow; c2d.shadowBlur = 12; }
-    c2d.drawImage(d.img, f * FRAME, 0, FRAME, FRAME,
-      -FRAME / 2 * scale, -FEET * scale, FRAME * scale, FRAME * scale);
+    // An animation may be stored denser than the roster (the hero is: a
+    // 192px cell for a 96px slot). The SOURCE rect follows the cell, the
+    // destination stays on the game's own FRAME/FEET — so density changes
+    // detail and nothing else: same size, same ground, same anchor.
+    const fw = d.w || FRAME;
+    const dest = FRAME * scale;
+    const dx = -FRAME / 2 * scale, dy = -FEET * scale;
+    // How many source pixels one DEVICE pixel gets. The canvas carries its own
+    // scale (DPR, the resolution ladder), so the factor that decides whether the
+    // resample is clean is the one measured after it, not the one we passed in.
+    const m = c2d.getTransform && c2d.getTransform();
+    const k = (m && Math.abs(m.a)) || 1;
+    const ratio = dest * k / fw;
+    if (fw > FRAME && Math.abs(ratio - Math.round(ratio)) > 1e-3) {
+      // The cell is a whole number of pixels, so the destination has to be a
+      // whole number of DEVICE pixels too, or the blit is 126.72-from-127 and
+      // resamples all over again — which measured worse than the bug it was
+      // fixing. Sizing back through k makes it exactly 1:1; `s` carries the
+      // sub-pixel difference into the anchor so the boots do not drift.
+      const cell = Math.max(1, Math.round(dest * k));
+      const size = cell / k, s = size / dest;
+      c2d.drawImage(prescaled(type, anim, d, cell), f * cell, 0, cell, cell,
+        dx * s, dy * s, size, size);
+    } else {
+      c2d.drawImage(d.img, f * fw, 0, fw, fw, dx, dy, dest, dest);
+    }
     c2d.restore();
     return true;
   }
 
-  return { draw, FRAME, FEET, ready: () => loadedCount === total };
+  // How many frames a sheet actually holds. The callers time animations by
+  // duration and divide by this, so a re-bake that changes the count changes
+  // nothing else — see the hero's frame picker in scene.js.
+  const frames = (type, anim) => {
+    const d = DATA[type] && DATA[type][anim];
+    return (d && d.frames) || 1;
+  };
+
+  return { draw, frames, FRAME, FEET, ready: () => loadedCount === total };
 })();

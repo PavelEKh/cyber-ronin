@@ -7,6 +7,7 @@ const Scene = (() => {
   const ctx = cv.getContext('2d');
 
   let W = 0, H = 0, DPR = 1, groundY = 0, cx = 0, unitPx = 1, S = 1;
+  let reachUnits = 150; // this frame's strike reach — drawEnemy has no state handle
   let SPR = 2, SPR_BOSS = 4; // whole-pixel sprite scale, and the Warden's double
   // Floor on pixels-per-unit. The strike zone is a fixed FRACTION of the approach
   // (BASE_RANGE / SPAWN_DIST ≈ 17%), so on a narrow screen — a phone held upright
@@ -111,6 +112,20 @@ const Scene = (() => {
   let reflectPass = false; // drawing the wet-ground reflection — no side effects allowed
   // Cutscene mode: the world streams past under its own power and the hero
   // holds a run — the scene becomes a travelling shot between two acts.
+  //
+  // The two numbers below are one decision, not two: a run reads as a run when
+  // the ground covered per stride is long. They were pushed to 1500 and 2.35
+  // while the hero wore a generated run whose legs never passed each other —
+  // stretching the stride to hide a cycle that was not there. That sheet is
+  // gone and the hand-made sixteen is back, so these are the values that
+  // shipped with it. Tune them together or he minces.
+  const CINE_SPEED = 900;     // world units a second the travelling shot covers
+  const CINE_CYCLE = 1.78;    // seconds the hero takes to complete one stride in it
+  // The hero's animation timings, in seconds and in world units — one pass of
+  // the sheet, whatever number of frames that sheet turned out to hold. See the
+  // frame picker in the hero block for why none of this is a divisor.
+  const ATTACK_T = 0.25, HURT_T = 0.32, IDLE_T = 1.0;
+  const RUN_UNITS = 112;      // ground covered by one full stride cycle
   let cinemaMode = false;
   function setCinema(on) { cinemaMode = !!on; }
 
@@ -3309,19 +3324,28 @@ const Scene = (() => {
         : execReady ? 'rgba(255,45,78,0.8)'
         : chainReady ? 'rgba(186,255,77,0.8)'
         : 'rgba(38,214,255,0.55)';
+      // The hero's frames are picked by DURATION, never by a tuned divisor.
+      // Every re-bake so far has moved a frame count — idle 10 to 6, hurt 4 to
+      // 3, run 8 to 16 and back — and each time a magic number somewhere here
+      // had to move with it, or the animation ran at double speed and wrapped
+      // mid-pose. The count now comes off the sheet; only the timings below are
+      // a decision, and they hold whatever the next sheet brings.
       let name = 'idle', idx;
       const hurtAge = t - heroHurtT;
-      if (age < 0.25) {
+      const frames = (a) => Sprites.frames('hero', a);
+      if (age < ATTACK_T) {
         name = 'attack';
-        idx = Math.min(6, Math.floor(age / 0.036));
+        idx = Math.min(frames(name) - 1, Math.floor(age / (ATTACK_T / frames(name))));
       } else if (cinemaMode || Math.abs(camPx) > 5) {
         name = 'run'; // a dash still settling, or the cutscene's travelling shot
-        idx = cinemaMode ? Math.floor(t * 9) : Math.floor(Math.abs(worldVis) / 7);
-      } else if (hurtAge < 0.32) {
+        idx = cinemaMode
+          ? Math.floor(t * frames(name) / CINE_CYCLE)          // one stride per CINE_CYCLE
+          : Math.floor(Math.abs(worldVis) / (RUN_UNITS / frames(name)));
+      } else if (hurtAge < HURT_T) {
         name = 'hurt';
-        idx = Math.min(3, Math.floor(hurtAge / 0.08));
+        idx = Math.min(frames(name) - 1, Math.floor(hurtAge / (HURT_T / frames(name))));
       } else {
-        idx = Math.floor(t * 10); // idle-stance breathing
+        idx = Math.floor(t * frames(name) / IDLE_T); // the ready-stance, breathing
       }
       // afterimage: on a deep streak the swing leaves ghosts of itself behind
       // the lunge — the flow made visible. Skipped in the reflection pass;
@@ -3488,6 +3512,8 @@ const Scene = (() => {
     boss:    { color: '#ff3b3b', glow: 'rgba(255,59,59,0.55)' },
   };
   const eColor = (t) => (ENEMY_STYLE[t] || ENEMY_STYLE.drone).color;
+  // the stance palette, shared with the HUD chips in main.js
+  const STANCE_HUE = { blade: '#26d6ff', sweep: '#ff5c9e', pierce: '#ffb42d' };
   // The humanoid-sprite types carry a halo; drone/mimic/boss draw themselves and
   // are absent here on purpose (their presence gates the shared-sprite path).
   const SPRITE_CONF = Object.fromEntries(
@@ -3887,6 +3913,56 @@ const Scene = (() => {
       }
       ctx.restore();
     }
+    // The stance marker. Over a body the hand cannot hurt right now, the digit
+    // of a grammar that can — read off the field instead of held in the head.
+    // It appears only while the body is close enough to matter, and only for
+    // the crowd that carries a stance rule at all.
+    // A sealed body wears its answer at all times — the seal IS the enemy's
+    // rule, and hiding it until the player guesses wrong would be a riddle, not
+    // a mark. Unsealed bodies keep the old behaviour: the digit shows up only
+    // when the hand in play cannot hurt them.
+    const sealed = e.seal !== undefined;
+    if (run && Game.stancesOn(run) && (sealed || !Game.bodyBites(e, run.stance)) &&
+        d <= reachUnits * 2.4 && !e.phantom) {
+      const want = Game.stanceFor(run, e);
+      if (want >= 0) {
+        const col = STANCE_HUE[Game.STANCES[want]] || '#ffffff';
+        const my = groundY - 100 * S;
+        ctx.save();
+        if (sealed) {
+          // The seal is LIGHT, not a frame: an outline around a body read as UI
+          // pasted over the world. A soft column of the grammar's own colour
+          // rises through the silhouette instead — the body itself is lit by
+          // the word that can hurt it.
+          const g = ctx.createRadialGradient(x, groundY - 26 * S, 2, x, groundY - 26 * S, 46 * S);
+          const pulse = 0.30 + 0.16 * Math.sin(t * 4);
+          g.addColorStop(0, col + 'cc');
+          g.addColorStop(0.45, col + '44');
+          g.addColorStop(1, col + '00');
+          ctx.globalAlpha = pulse;
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.ellipse(x, groundY - 26 * S, 30 * S, 48 * S, 0, 0, Math.PI * 2);
+          ctx.fill();
+          // and a bright pool at the feet, so the mark survives a crowded road
+          ctx.globalAlpha = pulse * 1.3;
+          ctx.fillStyle = col;
+          ctx.beginPath();
+          ctx.ellipse(x, groundY + 1, 17 * S, 5 * S, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        ctx.globalAlpha = 0.55 + 0.35 * Math.sin(t * 6);
+        ctx.fillStyle = col;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 10;
+        ctx.font = `700 ${17 * S}px 'Segoe UI', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(String(want + 1), x, my);
+        ctx.restore();
+      }
+    }
+
   }
 
   // ---------- Corpses: the body is cut apart and dissolves ----------
@@ -4193,6 +4269,21 @@ const Scene = (() => {
         ctx.fillRect(-size * 0.4, -size * 0.18 + Math.sin(fx.t * 30 + i) * size * 0.2, size, 2.2 * S);
       }
       ctx.restore();
+      // The link's grammar, when it asks for one: the digit above the chevron in
+      // that stance's colour. The side is still the side — this says which word
+      // the blade must be holding when it lands.
+      if (b.gram && b.gram[i] !== undefined) {
+        const gc = STANCE_HUE[Game.STANCES[b.gram[i]]] || '#ffffff';
+        ctx.save();
+        ctx.globalAlpha = i < b.idx ? 0.35 : 1;
+        ctx.fillStyle = gc;
+        ctx.shadowColor = gc;
+        ctx.shadowBlur = 12;
+        ctx.font = `700 ${17 * S}px 'Segoe UI', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(String(b.gram[i] + 1), x, y - size * 0.85);
+        ctx.restore();
+      }
       // The reversal badge: a U-turn arc doubling back over the lying chevron.
       // An inverted arrow is indistinguishable from an honest one pointing that
       // way — this arc is the only mark that says "mirror me". Drawn unscaled so
@@ -4588,16 +4679,23 @@ const Scene = (() => {
     initTraffic();
   }
 
+  // The stance change: a thin coloured ring snapping out from the hero. The
+  // grammar of both hands just changed — that deserves one frame of light, not
+  // a line of text.
+  let stanceRing = null;
+  function stanceFlash(color) { stanceRing = { t0: fx.tr, color }; }
+
   // ---------- Frame ----------
   function render(st8, dt, rdt, alpha) {
     interpA = alpha === undefined ? 1 : alpha; // no alpha (tests, tools) — draw raw sim positions
+    if (st8 && st8.run) reachUnits = Game.range(st8);
     fx.t += dt;
     fx.tr += Math.min(dt, rdt === undefined ? dt : rdt); // see fx.tr above
     driftPx += (scene().drift || 0) * unitPx * dt; // scenes that move on their own
     // the menu postcard pans on its own — a slow travelling shot through the
     // parallax with no one on the ground
     if (st8.phase === 'menu') driftPx += 22 * unitPx * dt;
-    if (cinemaMode) cineTravel += 900 * unitPx * dt; // the travelling shot's mileage
+    if (cinemaMode) cineTravel += CINE_SPEED * unitPx * dt; // the travelling shot's mileage
     // camera: worldVis smoothly catches up with the logic's worldX, the world glides under the hero
     const wxT = st8.run && (st8.phase === 'combat' || st8.phase === 'choice') ? st8.run.worldX : worldVis;
     if (Math.abs(wxT - worldVis) > 600) worldVis = wxT; // teleport cases skip the animation
@@ -4748,6 +4846,22 @@ const Scene = (() => {
       for (const id of [...enemyVis.keys()]) if (!liveIds.has(id)) enemyVis.delete(id);
       for (const e of run.enemies) drawEnemy(e, fx.t, run);
       drawGlints(run); // zone-entry flares sit over the silhouettes they mark
+      if (stanceRing) {
+        const k = (fx.tr - stanceRing.t0) / 0.3;
+        if (k >= 1) stanceRing = null;
+        else {
+          ctx.save();
+          ctx.strokeStyle = stanceRing.color;
+          ctx.shadowColor = stanceRing.color;
+          ctx.shadowBlur = 14;
+          ctx.globalAlpha = (1 - k) * 0.75;
+          ctx.lineWidth = 3 * S * (1 - k * 0.6);
+          ctx.beginPath();
+          ctx.ellipse(cx + camPx, groundY - 30 * S, (30 + k * 130) * S, (12 + k * 46) * S, 0, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
       if (Game.mutHas(run, 'fog')) drawFogVeil();
       if (run.boss) {
         const b = run.boss;
@@ -4865,5 +4979,6 @@ const Scene = (() => {
   initTraffic();
 
   return { render, setAct, setCinema, setWeather, slash, burst, floatText, phantomScatter, bolt, corpse, heroDie, heroHurt, shake, flash, punch, gust,
+           stanceFlash, enemyColor: eColor,
     setPeril, glint, heroShock, setFx, getFx: () => fx0, setQuality, X: (side, dist) => X(side, dist) };
 })();
