@@ -64,11 +64,23 @@ const Board = (() => {
   const wayKey = (key, hard) => (hard ? STANCE_PREFIX + key : key);
   const isMonth = key => /^\d{4}-\d{2}$/.test(bare(key));
 
-  const boardTitle = key => (isStanceKey(key) ? '⛩ ' : '') + (b =>
+  const boardTitle = key => (b =>
     b === 'endless' ? L('ДОСКА БЕСКОНЕЧНОСТИ', 'ENDLESS BOARD') :
     b === 'campaign' ? L('ДОСКА КАМПАНИИ', 'CAMPAIGN BOARD') :
     isMonth(b) ? L('ТАБЛИЦА МЕСЯЦА', 'BOARD OF THE MONTH') :
     L('ТАБЛИЦА ДНЯ', 'BOARD OF THE DAY'))(bare(key));
+
+  // Which way's ledger this is. It used to be a bare '⛩' glued in front of the
+  // title — present, and missed: a mark you have to already know cannot teach
+  // the split, and the plain board said nothing at all, so its silence had to
+  // be read as the answer. Both boards now name their road out loud, and the
+  // line carries the same gold the harder way wears everywhere else.
+  const wayLine = (parent, key) => {
+    const el = div('board-way' + (isStanceKey(key) ? ' stance' : ''),
+      isStanceKey(key) ? '⛩ ' + L('ПУТЬ ТРЁХ СТОЕК', 'WAY OF THREE STANCES')
+                       : '⚔ ' + L('ОБЫЧНЫЙ ПУТЬ', 'THE PLAIN WAY'));
+    parent.appendChild(el);
+  };
 
   // ---------- Rendering ----------
   // Built with createElement/textContent on purpose: player names are the one
@@ -84,6 +96,7 @@ const Board = (() => {
   function renderRows(container, key, data, withEditor) {
     container.textContent = '';
     container.appendChild(div('board-title', boardTitle(key)));
+    wayLine(container, key);
     // namesakes on the visible list get their public pid tag — two «ронин»
     // must not read as one player
     const dupes = {};
@@ -222,6 +235,7 @@ const Board = (() => {
     lastSubmit = s;
     container.textContent = '';
     container.appendChild(div('board-title', boardTitle(res.key) + '…'));
+    wayLine(container, res.key);
     try {
       await api('POST', res.key, { pid: pid(), name: getName(), ...res.entry });
       champCache = null; // the menu's frame must catch a possible new leader
@@ -315,6 +329,7 @@ const Board = (() => {
   async function view(container, key) {
     container.textContent = '';
     container.appendChild(div('board-title', boardTitle(key) + '…'));
+    wayLine(container, key);
     try {
       renderRows(container, key, await api('GET', key), false);
     } catch (e) {

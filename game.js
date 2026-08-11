@@ -103,7 +103,8 @@ const STEP = 1 / 60;
 // rejected loudly instead. Bumping the epoch retires stored replays (board
 // ROWS survive). The full version shows in the menu corner.
 const VERSION_MAJOR = 1;
-const VERSION_REPLAY = 4; // 1.4: stances — the two buttons keep their sides and change what a press means
+const VERSION_REPLAY = 5; // 1.5: the arc's follow-through is forgiven — a press into the side a sweep just cleared is not a whiff
+                          // (1.4: stances — the two buttons keep their sides and change what a press means)
                           // (1.3: an execute on a twin takes the pair, and the chord charges the execute counter)
                           // (1.2: the combo multiplier caps at ×3.5 — score favors depth over one unbroken tail)
                           // (1.1: the early-press buffer — a swing at an empty zone waits for its target)
@@ -117,7 +118,7 @@ const BASE_RANGE = 150;   // base strike range
 // this long, and lands the moment its target crosses into reach. Rhythm-game
 // forgiveness — the difference between "hard but fair" and "the game cheated
 // me out of a frame". One queued press per side; a second press on the same
-// side while one waits is spam and flubs immediately (see strikeCore), so the
+// side while one waits is spam and flubs immediately (see resolveCrowd), so the
 // mash exploit — hold a permanent buffer, never eat a miss — cannot exist.
 const PRESS_BUFFER = 5 * STEP; // ~83ms, tuned to feel like the press "counted"
 const HIT_DIST = 34;      // an enemy this close lands a hit on the hero
@@ -161,6 +162,15 @@ const CHAIN_EVERY2 = 5; // 4 was measured too rich: with charges from deflection
                         // the full deep-endless kit nearly doubled bot depth
 const EXEC_GRACE = 0.35;  // sec: a miss right after an execute on the same side is forgiven —
                           // the execute stole the target the press was already committed to
+// The same forgiveness for the arc, and for the same reason. SWEEP takes every
+// body in reach on its side in one motion — which is the point — and the hand
+// that was already swinging for the second of them finds an empty street. The
+// press was aimed at a body the previous press had legally removed, so counting
+// it as a whiff punished the same swing twice: the arc pays one link of streak
+// for the whole crowd (deliberate), and then the follow-through paid the whole
+// streak plus a stun (not). Measured: three drones in reach, blade leaves the
+// combo at 3, sweep at 0.
+const SWEEP_GRACE = 0.4;
 // Emergency Capacitor: the lethal hit is survived at 1 armor, once per run, and
 // the discharge hurls every walker at least this far out — twice the mercy
 // distance, so the save buys a real breath and not just the next contact frame.
@@ -1391,15 +1401,12 @@ function stepBoss(s, ev, dt, rg, sm, fieldEmpty) {
       if (bb && bb.qteUpdate) bb.qteUpdate({ s, b, ev, dt });
       b.timer -= dt;
       if (b.timer <= 0) {
-        b.state = 'walk';
-        b.dist = Math.max(b.dist, BOSS_RETREAT);
-        b.seq = null;
-        b.glitch = null;
-        b.windup = 0;
-        r.qteFails++;
-        hurt(s, ev, { side: b.side }, 'boss');
-        ev.push({ type: 'qteFail', side: b.side, reason: 'timeout' });
-        if (bb && bb.retreat) bb.retreat({ s, b });
+        // the side that held the chain, taken BEFORE the teardown: the Double's
+        // retreat inside abortChain re-rolls b.side, and the verdict must name
+        // the wall the wound came from, not the side of the next approach
+        const bs = b.side;
+        abortChain(s, b, 'timeout', ev);
+        ev.push({ type: 'qteFail', side: bs, reason: 'timeout' });
       }
     }
   }
@@ -1964,7 +1971,7 @@ function strike(s, side) {
 // canBuffer=false (a press may wait once, never re-queue) and the prevSide it
 // captured at press time, so the adapter's shield reads the true press order.
 // The chord's payout, shared by the twin resolver and the zone-wide double
-// tap in strikeCore: both twins fall for +2 combo, the streak charges, and
+// tap in resolveCrowd: both twins fall for +2 combo, the streak charges, and
 // Protocol EXECUTE counts the two connected presses without ever swallowing
 // an armed charge — a pair that dies whole needs no free kill, so the
 // counter parks one short of the trigger instead of spending it.
@@ -1989,90 +1996,119 @@ function chordKill(s, side, a, b) {
   return res;
 }
 
-function strikeCore(s, side, prevSide, canBuffer) {
+// One exit from the chain, three doors into it. Every way a QTE ends short of
+// the Warden's death funnels through here: the chain state is torn down the
+// same way each time, and the kind's retreat hook fires exactly once, LAST —
+// hurt() reads b.side for the wound, and the Double's retreat re-rolls it.
+//   'phase'   — a broken phase: he flips sides and re-enters from deep field
+//   'wrong'   — the pressed side missed: a fault, a wound, a near retreat
+//   'timeout' — the clock ran out: the same fault; the caller words the event
+// The differing verdict events (bossStagger, the two shapes of qteFail) stay
+// with the callers — they carry caller-local facts (glitch, summons, wording).
+// b.gram is cleared on EVERY exit. The old timeout and phase-break paths left
+// it dangling through the walk; that was unobservable, and so is clearing it:
+// gram is only ever read under state === 'qte' (this file, sim.js, the
+// scripted player in game.test.js, drawQte in ui/scene.js — all guarded), and
+// every entry into 'qte' rebuilds it via genGrams before the first read.
+function abortChain(s, b, reason, ev) {
   const r = s.run;
-  const rg = range(s);
-  // every press leaves a timestamp; the zone-wide double tap below reads the
-  // PREVIOUS one, so the pair hears the chord no matter what each hand hit
-  const prevPress = r.lastPress;
-  r.lastPress = { side, at: r.time };
-
-  // ---------- Warden: the QTE shred ----------
-  const b = r.boss;
-  if (b && b.state === 'qte') {
-    // the link's grammar answers before its side: a correct press in the wrong
-    // word rings off the chain — no progress, no fault, and the clock keeps
-    // running. The punishment for reading it late is the time it costs.
-    if (side === b.seq[b.idx] && b.gram && b.gram[b.idx] !== undefined &&
-        STANCES[b.gram[b.idx]] !== r.stance) {
-      return { type: 'qteGlance', side, idx: b.idx, gram: b.gram[b.idx], dist: b.dist };
-    }
-    if (side === b.seq[b.idx]) {
-      // a correct press on a lying link is the proof the inversion was understood —
-      // the in-frame hint retires once the player has done it TEACH_GLITCH times
-      if (b.glitch && b.glitch[b.idx]) s.meta.stats.glitchHits++;
-      b.idx++;
-      bumpCombo(r);
-      // chain presses charge the bolt too — the implant keeps cycling through
-      // the duel and comes out of it ready (the bolt itself only fires on a
-      // regular hit: during the QTE every press belongs to the chain)
-      if (chainEvery(s)) r.chainCombo++;
-      if (b.idx < b.seq.length) {
-        // the Warden leaps to the SHOWN side; on a glitch link that is the wrong one
-        b.side = qteShown(b, b.idx);
-        return { type: 'qteHit', side, idx: b.idx, len: b.seq.length, dist: b.dist,
-                 nextSide: b.side, nextGlitch: !!(b.glitch && b.glitch[b.idx]),
-                 nextGram: b.gram ? b.gram[b.idx] : undefined };
-      }
-      b.phase++;
-      if (b.phase >= b.phases) {
-        // the Warden is slain
-        const dist = b.dist;
-        r.boss = null;
-        r.bossPending = false;
-        r.kills++;
-        s.meta.stats.totalKills++;
-        s.meta.stats.bossKills++;
-        r.score += BOSS_SCORE * r.act;
-        r.credits += Math.round(BOSS_CREDITS * r.act * creditMult(s));
-        return { type: 'bossDead', side, dist };
-      }
-      // phase broken: he re-enters from the other side, next chain is longer
-      b.state = 'walk';
-      b.side = -b.side;
-      b.dist = SPAWN_DIST * 0.75;
-      b.seq = null;
-      b.glitch = null;
-      b.windup = 0;
-      const bb = BOSS_BEHAVIOR[b.kind];
-      const summoned = bb && bb.phaseBreak ? bb.phaseBreak({ r, b }) : 0;
-      if (bb && bb.retreat) bb.retreat({ s, b });
-      return { type: 'bossStagger', side, dist: rg, phasesLeft: b.phases - b.phase, summoned };
-    }
-    // wrong side: a fault — a wound and a fresh Warden approach
-    const evs = [];
-    // was the missed link a lying one? the UI corrects the player only then
-    const onGlitch = !!(b.glitch && b.glitch[b.idx]);
-    b.state = 'walk';
+  b.state = 'walk';
+  b.seq = null;
+  b.gram = null;
+  b.glitch = null;
+  b.windup = 0;
+  const bb = BOSS_BEHAVIOR[b.kind];
+  let summoned = 0;
+  if (reason === 'phase') {
+    // he re-enters from the other side; the next chain is longer
+    b.side = -b.side;
+    b.dist = SPAWN_DIST * 0.75;
+    if (bb && bb.phaseBreak) summoned = bb.phaseBreak({ r, b });
+  } else {
     b.dist = Math.max(b.dist, BOSS_RETREAT);
-    b.seq = null;
-    b.gram = null;
-    b.glitch = null;
-    b.windup = 0;
     r.qteFails++;
-    hurt(s, evs, { side: b.side }, 'boss');
-    const bbf = BOSS_BEHAVIOR[b.kind];
-    if (bbf && bbf.retreat) bbf.retreat({ s, b });
-    return { type: 'qteFail', side, reason: 'wrong', glitch: onGlitch, events: evs };
+    hurt(s, ev, { side: b.side }, 'boss');
   }
-  if (b && b.state === 'walk') {
-    const bbw = BOSS_BEHAVIOR[b.kind];
-    if (bbw && bbw.walkStrike) {
-      const res = bbw.walkStrike({ s, r, b, side, rg });
-      if (res) return res;
+  if (bb && bb.retreat) bb.retreat({ s, b });
+  return summoned;
+}
+
+// ---------- Warden: the QTE shred ----------
+// The open chain owns every press outright: while the QTE runs, no swing
+// reaches the crowd, the steel, or the buffer — that is why this rule stands
+// FIRST in strikeCore's priority. One rung lower and a press that happened to
+// match some walker in the zone would strike the crowd instead of advancing
+// (or failing) the chain: the duel could be farmed for kills mid-chain or
+// broken by rules that were never about it. The chain answers every press, so
+// unlike the walk resolver below this one never declines.
+function resolveQte(s, b, side, rg) {
+  const r = s.run;
+  // the link's grammar answers before its side: a correct press in the wrong
+  // word rings off the chain — no progress, no fault, and the clock keeps
+  // running. The punishment for reading it late is the time it costs.
+  if (side === b.seq[b.idx] && b.gram && b.gram[b.idx] !== undefined &&
+      STANCES[b.gram[b.idx]] !== r.stance) {
+    return { type: 'qteGlance', side, idx: b.idx, gram: b.gram[b.idx], dist: b.dist };
+  }
+  if (side === b.seq[b.idx]) {
+    // a correct press on a lying link is the proof the inversion was understood —
+    // the in-frame hint retires once the player has done it TEACH_GLITCH times
+    if (b.glitch && b.glitch[b.idx]) s.meta.stats.glitchHits++;
+    b.idx++;
+    bumpCombo(r);
+    // chain presses charge the bolt too — the implant keeps cycling through
+    // the duel and comes out of it ready (the bolt itself only fires on a
+    // regular hit: during the QTE every press belongs to the chain)
+    if (chainEvery(s)) r.chainCombo++;
+    if (b.idx < b.seq.length) {
+      // the Warden leaps to the SHOWN side; on a glitch link that is the wrong one
+      b.side = qteShown(b, b.idx);
+      return { type: 'qteHit', side, idx: b.idx, len: b.seq.length, dist: b.dist,
+               nextSide: b.side, nextGlitch: !!(b.glitch && b.glitch[b.idx]),
+               nextGram: b.gram ? b.gram[b.idx] : undefined };
     }
+    b.phase++;
+    if (b.phase >= b.phases) {
+      // the Warden is slain
+      const dist = b.dist;
+      r.boss = null;
+      r.bossPending = false;
+      r.kills++;
+      s.meta.stats.totalKills++;
+      s.meta.stats.bossKills++;
+      r.score += BOSS_SCORE * r.act;
+      r.credits += Math.round(BOSS_CREDITS * r.act * creditMult(s));
+      return { type: 'bossDead', side, dist };
+    }
+    // phase broken: the chain comes down and he re-enters for the next one
+    const summoned = abortChain(s, b, 'phase');
+    return { type: 'bossStagger', side, dist: rg, phasesLeft: b.phases - b.phase, summoned };
   }
-  if (b && b.state === 'walk' && b.side === side && b.dist <= rg) {
+  // wrong side: a fault — a wound and a fresh Warden approach
+  const evs = [];
+  // was the missed link a lying one? the UI corrects the player only then
+  const onGlitch = !!(b.glitch && b.glitch[b.idx]);
+  abortChain(s, b, 'wrong', evs);
+  return { type: 'qteFail', side, reason: 'wrong', glitch: onGlitch, events: evs };
+}
+
+// A Warden walking in the zone takes the press before the crowd does — this
+// rule is what lets the duel OPEN at all, and that is why it stands between
+// the chain and the crowd. One rung lower and any minion sharing the zone
+// (the Core Shogun summons them onto the road on purpose) would steal the
+// opening strike, and the chain could never start through a crowd. Two rules
+// live here in their own order: the kind's walk trick first (the Double's
+// hollow projection eats the swing as a miss), then the opening strike that
+// turns walk into qte. Declines (null) when the press is not the Warden's to
+// take — the crowd resolver answers instead.
+function resolveBossWalk(s, b, side, rg) {
+  const r = s.run;
+  const bbw = BOSS_BEHAVIOR[b.kind];
+  if (bbw && bbw.walkStrike) {
+    const res = bbw.walkStrike({ s, r, b, side, rg });
+    if (res) return res;
+  }
+  if (b.side === side && b.dist <= rg) {
     // the first strike on the Warden IS the chain's first link: it counts,
     // shows as completed, and the timer covers only the remaining presses
     b.state = 'qte';
@@ -2096,6 +2132,17 @@ function strikeCore(s, side, prevSide, canBuffer) {
              nextSide: b.side, nextGlitch: !!(b.glitch && b.glitch[1]),
              nextGram: b.gram ? b.gram[1] : undefined };
   }
+  return null;
+}
+
+// Everything a press can mean once no duel claims it: the deflecting arc, the
+// miss and the buffer, the zone-wide twin chord, the execute, the enemy types'
+// own resolvers, the sweep and the dash. LAST in strikeCore's priority by
+// definition — the crowd is what a press falls through to when nothing above
+// wanted it; any of these rules standing higher would let a walker steal a
+// press out of a Warden's duel.
+function resolveCrowd(s, side, prevSide, prevPress, canBuffer, rg) {
+  const r = s.run;
   // The slash is an arc: it deflects ALL shurikens in the zone on this side
   // and simultaneously hits the nearest enemy if it is in the zone too.
   // A revealed phantom does not stop steel: when a real target stands in the
@@ -2114,6 +2161,12 @@ function strikeCore(s, side, prevSide, canBuffer) {
     if (r.execAt !== undefined && (r.execSide === side || r.execSide === 0) &&
         r.time - r.execAt < EXEC_GRACE) {
       r.execAt = undefined;
+      return { type: 'ghostMiss', side };
+    }
+    // ...and the arc that just cleared this side takes the follow-through with it
+    if (r.sweepAt !== undefined && r.sweepSide === side &&
+        r.time - r.sweepAt < SWEEP_GRACE) {
+      r.sweepAt = undefined;
       return { type: 'ghostMiss', side };
     }
     // The early swing hangs and waits for its target (see PRESS_BUFFER). One
@@ -2243,7 +2296,13 @@ function strikeCore(s, side, prevSide, canBuffer) {
       if (sub.type !== 'glance') extras.push(sub);
     }
   }
-  if (extras.length) res.swept = extras;
+  if (extras.length) {
+    res.swept = extras;
+    // the arc took more than one: whatever the hand does next on this side, it
+    // was aimed at a body that is no longer there (see SWEEP_GRACE)
+    r.sweepAt = r.time;
+    r.sweepSide = side;
+  }
   // dash: a kill moves the hero to the victim, a non-killing hit is a short
   // lunge — the same in every grammar. The arc used to plant the feet, which
   // made one of the three move the world differently from the other two for no
@@ -2259,8 +2318,28 @@ function strikeCore(s, side, prevSide, canBuffer) {
   return finish(res);
 }
 
+// The rulebook's priority, explicit and in one place: an open chain owns the
+// press outright; a walking Warden may claim it; whatever neither takes
+// belongs to the crowd. The order IS a rule of the game — each resolver's own
+// comment says what would break if it stood elsewhere.
+function strikeCore(s, side, prevSide, canBuffer) {
+  const r = s.run;
+  const rg = range(s);
+  // every press leaves a timestamp; the zone-wide double tap in resolveCrowd
+  // reads the PREVIOUS one, so the pair hears the chord no matter what each hand hit
+  const prevPress = r.lastPress;
+  r.lastPress = { side, at: r.time };
+  const b = r.boss;
+  if (b && b.state === 'qte') return resolveQte(s, b, side, rg);
+  if (b && b.state === 'walk') {
+    const res = resolveBossWalk(s, b, side, rg);
+    if (res) return res;
+  }
+  return resolveCrowd(s, side, prevSide, prevPress, canBuffer, rg);
+}
+
 // The punished swing: the stun, the wiped combo, the ledger's miss. Shared by
-// the immediate flub in strikeCore and a buffered press expiring in stepBuffer.
+// the immediate flub in resolveCrowd and a buffered press expiring in stepBuffer.
 function flubMiss(s, side) {
   const r = s.run;
   r.stun = stunTime(s);
@@ -2582,6 +2661,10 @@ function packRec(rec) {
   return {
     v: rec.v, seed: rec.seed, mode: rec.mode, upgrades: rec.upgrades,
     T: rec.T, end: rec.end,
+    // the way is part of the rules: without it a stance tape downloaded from
+    // the board replayed as plain and silently diverged from its own score.
+    // Only stamped when set — older plain tapes carry no field and stay valid.
+    ...(rec.hard ? { hard: 1 } : {}),
     a: rec.a.map(x =>
       x.s !== undefined ? [x.t, x.s] : x.c !== undefined ? ['c', x.c]
       : x.st !== undefined ? ['s', x.t, x.st] : ['r']),
@@ -2594,7 +2677,7 @@ function unpackRec(p) {
     // the sim did not change at the rebase, so they map onto '1.0' and live on
     v: p.v === 1 ? '1.0' : p.v,
     seed: p.seed, mode: p.mode, upgrades: p.upgrades || {},
-    T: p.T, end: p.end,
+    T: p.T, end: p.end, hard: p.hard ? 1 : 0,
     // choice actions carry no tick — replayFeed applies them whenever the
     // choice screen holds, exactly as it does for the in-memory form
     a: p.a.map(x =>
@@ -2705,7 +2788,7 @@ const Game = {
   SEAL_ACT, SEAL_CHANCE, SEAL_PER_WAVE,
   PIERCE_DMG, cycleStance, setStance, MIMIC_FLASH, MIMIC_REVEAL_K,
   BOSS_SPEED, BOSS_RETREAT, BOSS_QTE_LEN, BOSS_QTE_PRESS, BOSS_PHASES, BOSS_CREDITS, BOSS_SCORE,
-  bossKind, qteShown, GUST_MULT, GUST_TIME, GLITCH_CHANCE,
+  bossKind, qteShown, genGrams, QTE_GRAM_CHANCE, GUST_MULT, GUST_TIME, GLITCH_CHANCE,
   BOSS_KINDS, ARMORER_THROW_MIN, ARMORER_BURN_FLOOR, ARMORER_BURN_CAP,
   GUST_FLOOR, GUST_TELE, GUST_SQUEEZE, GUST_MIN_PRESS, GUST_ZONE_K,
   MUTATORS, MUTATOR_CHANCE, MUT_CREDIT, MUT_PAIR_CREDIT, MUT_PAIR_WAVE, FOG_DIST, RAIN_EVERY, BLITZ_SPEED, SQUALL_SIZE, mutSpeed, mutHas, mutCredit,

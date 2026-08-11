@@ -39,6 +39,7 @@ const Scene = (() => {
     cv.style.width = W + 'px';
     cv.style.height = H + 'px';
     ctx.setTransform(k, 0, 0, k, 0, 0);
+    renderK = k; // baked strips must re-bake at the new backing-store scale
     groundY = H * horizonOf();
     cx = W / 2;
     // On a wide screen the enemy's whole path fits in the half-width; on a narrow
@@ -66,6 +67,7 @@ const Scene = (() => {
     SPR = Math.max(1, Math.round(1.9 * S));
     SPR_BOSS = SPR * 2;
     bgCache = null; // regenerate the static background
+    bgBake = null;  // and its rasterised strips — they carry the old size/scale
     gradCache = {}; // gradients bake in groundY/S — stale ones would misplace light
   }
   // Coalesced to one resize per frame: a window drag or a phone rotation fires a
@@ -81,6 +83,15 @@ const Scene = (() => {
   // phones: rotation is the resize that matters, and some browsers fire it
   // without (or before) a resize event
   window.addEventListener('orientationchange', queueResize);
+  // A tab that lived long enough — hours in the background, a laptop sleep, a
+  // GPU process reset — can come back with its offscreen canvases silently
+  // wiped, and the baked background strips are exactly that: the game would
+  // keep blitting blank city. A 2d context gives no "context lost" event to
+  // listen for, so the cheap insurance is to drop the bake whenever the tab
+  // returns to view: one rebuild, a few milliseconds, once per return.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) bgBake = null;
+  });
 
   // The camera is hard-locked to the hero: a dash changes worldX instantly (logic),
   // while worldVis catches up smoothly — camPx slides the whole world under the hero.
@@ -119,13 +130,33 @@ const Scene = (() => {
   // stretching the stride to hide a cycle that was not there. That sheet is
   // gone and the hand-made sixteen is back, so these are the values that
   // shipped with it. Tune them together or he minces.
-  const CINE_SPEED = 900;     // world units a second the travelling shot covers
-  const CINE_CYCLE = 1.78;    // seconds the hero takes to complete one stride in it
+  // THE TRAVELLING SHOT'S TWO NUMBERS, and they are one decision.
+  //
+  // A run reads as mincing when the feet cycle many times over ground that
+  // barely moves under them — or, the same thing seen the other way, when the
+  // ground flies past faster than the legs could ever carry the man. Measure it
+  // rather than argue: the hero's own stride is about 48 world units (the feet
+  // part by 26 game pixels, drawn at SPR, over unitPx per unit). At 900 units a
+  // second the shot was moving 17 TIMES the ground his legs were claiming, and
+  // slowing the legs — the first thing tried — took that to 26. Small quick
+  // steps under a warping city is exactly what 26x looks like.
+  //
+  // So the road slowed down instead, and the legs went back to a normal pixel
+  // cadence: 12 poses a second, 1.6 steps, ~175 units of ground per step
+  // against the honest 48. Four times over is a stylised sprint; seventeen was
+  // a treadmill under a rocket. (When the shot minced anyway, the road took
+  // the blame for a while — the real culprit was the empty-approach warp
+  // running the scene clock at 5.5x under the letterbox, see the `!cinema`
+  // guard in main.js. With the warp fenced out, four-times-over reads right.)
+  const CINE_SPEED = 280;     // world units a second the travelling shot covers
+  // Seconds for ONE PASS of the run sheet — the hand-made sixteen holds a
+  // full two-step cycle, so one pass is one stride of each leg.
+  const CINE_CYCLE = 1.25;
   // The hero's animation timings, in seconds and in world units — one pass of
   // the sheet, whatever number of frames that sheet turned out to hold. See the
   // frame picker in the hero block for why none of this is a divisor.
-  const ATTACK_T = 0.25, HURT_T = 0.32, IDLE_T = 1.0;
-  const RUN_UNITS = 112;      // ground covered by one full stride cycle
+  const ATTACK_T = 0.25, HURT_T = 0.32, IDLE_T = 1.0, DEATH_T = 0.92;
+  const RUN_UNITS = 112;      // ground covered by one pass — two steps on this sheet
   let cinemaMode = false;
   function setCinema(on) { cinemaMode = !!on; }
 
@@ -356,6 +387,283 @@ const Scene = (() => {
       actId, deck: sc.deck, profile: sc.profile,
       layers: sc.layers, style: ACT_STYLE[actId],
     });
+  }
+
+  // ---------- Baked background strips ----------
+  // The static part of the city is rasterised ONCE per act into offscreen strips
+  // and re-enters every frame as two drawImage calls per layer. What that buys
+  // off is the background's whole per-frame bill: the street re-filled ~600-800
+  // window rects and re-ran every sign glyph through fillText at shadowBlur=12 —
+  // the canvas shadow is the most expensive primitive there is (Firefox blurs it
+  // in software per call, see the degradation ladder), and the sign pass alone
+  // dominated everything below the bloom.
+  //
+  // What stays live is exactly what moves: sign flicker (the whole sign dims as
+  // one, so it is the baked cell drawn under a varying globalAlpha), the server
+  // LEDs (every one breathes on its own phase — no static subset exists), roof
+  // beacons and billboards (blinking), and every layer that sways or breathes
+  // (lanterns, stalls, sea, nobori, crowd, canopy).
+  //
+  // A strip is one tiling period wide — period-exact in DEVICE pixels, so the
+  // two blit copies join without a seam — cropped to the rows its layer touches,
+  // and baked at the current backing-store scale (renderK): one texel lands on
+  // exactly one pixel, no resampling, no мыло over the pixel grid. Worst case is
+  // ~25 MB for one act's three strips, freed on every act change.
+  //
+  // Invalidation rides the exact points that already reset bgCache — resize()
+  // (which also covers every render-scale step) and setAct() — plus the two
+  // shadow switches: killShadows()/restoreShadows() decide whether the sign
+  // atlas bakes its glow, and they can fire WITHOUT a resize (setQuality, the
+  // ladder), so they drop the bake themselves.
+  let bgBake = null;
+  let renderK = 1; // the effective backing-store scale — assigned in resize()
+
+  // Sign cells are baked at their brightest live alpha and drawn at a/0.85.
+  // Flattening glyph-over-glow into one image is not linear in alpha, so scaling
+  // the flat image is only exact AT the baked alpha — pinning it to the top of
+  // the flicker puts the error where the sign is dim, i.e. where it cannot be
+  // seen.
+  const SIGN_BAKE_A = 0.85;
+
+  // The server LEDs' twinkle alpha, quantised to 25 canned strings. The live
+  // loop built a fresh `rgba(...)` string per lit LED per frame — hundreds of
+  // allocations a frame; a 0.01 alpha step is far below what the eye can pick
+  // out of a shimmer.
+  const SRV_LED = [];
+  for (let i = 0; i <= 24; i++) {
+    SRV_LED.push(`rgba(45, 255, 143, ${(0.25 + 0.25 * i / 24).toFixed(4)})`);
+  }
+
+  // x → its place inside the tiling period — what tile() answers at scroll 0.
+  const wrapX = (x) => { let s = x % bgCache.P; return s < 0 ? s + bgCache.P : s; };
+
+  function makeStrip(yTop, yBot, draw) {
+    const k = renderK;
+    const pd = Math.max(1, Math.round(bgCache.P * k)); // the period in device px
+    const y0 = Math.max(0, Math.floor(yTop * k));
+    const cvS = document.createElement('canvas');
+    cvS.width = pd;
+    cvS.height = Math.max(1, Math.ceil(yBot * k) - y0);
+    const c = cvS.getContext('2d');
+    c.setTransform(k, 0, 0, k, 0, -y0);
+    // The wrap step handed to the draw callback is the strip's own period in
+    // CSS units (pd/k, not P): the wrapped copy must join at the strip's device
+    // edge, or the seam would drift by frac(P·k) and shimmer at the join.
+    draw(c, pd / k);
+    return { cv: cvS, y0, pd };
+  }
+
+  // The far silhouette rows: one fillStyle, one rect per building — but dozens
+  // of them, twice, every frame. Pure win to bake.
+  function bakeRowStrip(arr, fill) {
+    const by = shoreY();
+    let top = by;
+    for (const b of arr) top = Math.min(top, by - b.h);
+    return makeStrip(top - 2, by + 1, (c, wrap) => {
+      c.fillStyle = fill;
+      for (const b of arr) {
+        const s = wrapX(b.x);
+        c.fillRect(s, by - b.h, b.w, b.h);
+        c.fillRect(s - wrap, by - b.h, b.w, b.h);
+      }
+    });
+  }
+
+  // The whole 0.35-parallax group in its live draw order: near bodies, rack
+  // furniture, cables, antenna masts, static windows. Source-over is
+  // associative, so compositing this strip over the frame is pixel-equal to
+  // having issued the same calls in place — the layers between farRow and this
+  // group (haze) are screen-space and draw before it, as before.
+  function bakeNearStrip() {
+    const withWin = actId !== 'server' && has('windows');
+    let top = groundY;
+    for (const b of bgCache.near) top = Math.min(top, groundY - b.h);
+    for (const rf of bgCache.roofs) {
+      if (rf.type === 'ant') top = Math.min(top, rf.y - rf.h);
+    }
+    return makeStrip(top - 4, groundY + 2, (c, wrap) => {
+      c.fillStyle = 'rgba(5, 5, 14, 0.92)';
+      for (const b of bgCache.near) {
+        const s = wrapX(b.x);
+        c.fillRect(s, groundY - b.h, b.w, b.h);
+        c.fillRect(s - wrap, groundY - b.h, b.w, b.h);
+      }
+      // rack furniture — the server hall's ~700 seam/cap/rail rects a frame
+      for (const b of bgCache.near) {
+        if (!b.rack) continue;
+        const s = wrapX(b.x);
+        for (const xx of [s, s - wrap]) {
+          const top2 = groundY - b.h;
+          c.fillStyle = 'rgba(16, 30, 40, 0.55)';
+          c.fillRect(xx, top2, b.w, 3);
+          c.fillStyle = 'rgba(12, 24, 33, 0.45)';
+          c.fillRect(xx, top2, 2, b.h);
+          c.fillRect(xx + b.w - 2, top2, 2, b.h);
+          c.fillStyle = 'rgba(10, 20, 28, 0.5)';
+          for (let sy = top2 + 15; sy < groundY - 8; sy += 15) {
+            c.fillRect(xx + 3, sy, b.w - 6, 1.5);
+          }
+        }
+      }
+      if (has('roofs') || has('cables')) {
+        c.strokeStyle = 'rgba(4, 5, 12, 0.9)';
+        c.lineWidth = 1.4;
+        for (const cb of bgCache.cables) {
+          const dx = cb.x2 - cb.x1;
+          // the same silent culls as the live path: overlapped pairs, and the
+          // one cable that straddles the tiling seam, are never drawn
+          if (dx <= 0 || dx > 300) continue;
+          const s = wrapX(cb.x1);
+          if (s + dx >= bgCache.P) continue;
+          for (const off of [0, -wrap]) {
+            c.beginPath();
+            c.moveTo(s + off, cb.y1);
+            c.quadraticCurveTo(s + off + dx / 2, Math.max(cb.y1, cb.y2) + cb.sag,
+                               s + off + dx, cb.y2);
+            c.stroke();
+          }
+        }
+        // antenna masts; their beacons blink and stay live in LAYERS.roofs
+        c.strokeStyle = 'rgba(4, 5, 12, 0.95)';
+        c.lineWidth = 1.6;
+        for (const rf of bgCache.roofs) {
+          if (rf.type !== 'ant') continue;
+          const s = wrapX(rf.x);
+          for (const off of [0, -wrap]) {
+            c.beginPath();
+            c.moveTo(s + off, rf.y);
+            c.lineTo(s + off, rf.y - rf.h);
+            c.stroke();
+          }
+        }
+      }
+      if (withWin) {
+        c.fillStyle = 'rgba(255, 220, 160, 0.22)';
+        for (const wd of bgCache.windows) {
+          if (!wd.lit) continue;
+          const s = wrapX(wd.x);
+          c.fillRect(s, wd.y, 5, 7);
+          c.fillRect(s - wrap, wd.y, 5, 7);
+        }
+      }
+    });
+  }
+
+  // Every sign into one atlas, one cell per sign — cells, not a strip, because
+  // the flicker alpha is per SIGN and has to ride the drawImage call.
+  function bakeSigns() {
+    const k = renderK;
+    const halfW = Math.ceil(9 * S * k);          // half an em of bold CJK, with slack
+    const glow = shadowsOff ? 4 : 26;            // shadowBlur 12 is device-space; 3σ ≈ 18
+    const padX = halfW + glow;
+    const padTop = Math.ceil(15 * S * k) + glow; // ascent above the first baseline
+    const padBot = Math.ceil(5 * S * k) + glow;  // descent below the last
+    const stepD = 17 * S * k;                    // device distance between baselines
+    const cells = [];
+    let ax = 0, ah = 1;
+    for (const sg of bgCache.signs) {
+      const cw = padX * 2 + 2;
+      const ch = padTop + Math.ceil((sg.text.length - 1) * stepD) + padBot;
+      // dx/dy carry the glyph's sub-pixel phase inside its device pixel. Baking
+      // each sign at its LIVE phase and blitting at integer offsets reproduces
+      // the analytic rasterisation exactly — the pixel check stays green by
+      // identity, not by tolerance.
+      cells.push({ sg, x: ax, w: cw, h: ch,
+                   dx: padX + (sg.x * k - Math.floor(sg.x * k)),
+                   dy: padTop + (sg.y * k - Math.floor(sg.y * k)) });
+      ax += cw;
+      ah = Math.max(ah, ch);
+    }
+    const cvA = document.createElement('canvas');
+    cvA.width = Math.max(1, ax);
+    cvA.height = ah;
+    const c = cvA.getContext('2d');
+    c.setTransform(k, 0, 0, k, 0, 0);
+    c.textAlign = 'center';
+    c.font = `bold ${Math.round(15 * S)}px sans-serif`;
+    c.globalAlpha = SIGN_BAKE_A;
+    for (const cell of cells) {
+      const sg = cell.sg;
+      c.fillStyle = sg.color;
+      if (!shadowsOff) { c.shadowColor = sg.color; c.shadowBlur = 12; }
+      for (let i = 0; i < sg.text.length; i++) {
+        c.fillText(sg.text[i], (cell.x + cell.dx) / k, cell.dy / k + i * 17 * S);
+      }
+    }
+    return { cv: cvA, cells };
+  }
+
+  function buildBgBake() {
+    // A bake failure must never take the renderer down — every consumer keeps
+    // its analytic path and treats a missing strip as "draw it yourself".
+    try {
+      const b = {};
+      if (!has('hallWall') && has('skyline') && bgCache.farfar.length) {
+        b.skyline = bakeRowStrip(bgCache.farfar, 'rgba(10, 10, 26, 0.3)');
+      }
+      if (has('farRow') && bgCache.far.length) {
+        b.far = bakeRowStrip(bgCache.far, 'rgba(8, 8, 20, 0.55)');
+      }
+      if (has('nearRow') && bgCache.near.length) b.near = bakeNearStrip();
+      if (has('signs') && bgCache.signs.length) b.signs = bakeSigns();
+      return b;
+    } catch (e) {
+      return {}; // out of memory, or a canvas stub: stay on the live paths
+    }
+  }
+
+  // Both blit paths below work in raw device space: baking at renderK only pays
+  // off if the destination lands on the integer pixel grid, so offsets are
+  // rounded there, not in CSS units. Under the punch zoom (m.a ≠ renderK) the
+  // strip scales with everything else — a 100 ms transient, resampling allowed.
+  function blitStrip(strip, bg, factor) {
+    let sh = (bg.scroll * factor) % bg.P;
+    if (sh < 0) sh += bg.P;
+    const m = ctx.getTransform();
+    const sc = m.a / renderK;
+    const snap = Math.abs(sc - 1) < 1e-4;
+    const pw = strip.pd * sc;
+    let x = m.a * -sh + m.e;
+    if (snap) x = Math.round(x);
+    // fold into (-pw, 0]: shake and kick shift m.e, and a gap on the left edge
+    // is exactly what the two-copy cover must never show
+    x -= pw * Math.ceil(x / pw);
+    let y = m.d * (strip.y0 / renderK) + m.f;
+    if (snap) y = Math.round(y);
+    const w = strip.cv.width * sc, h = strip.cv.height * sc;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(strip.cv, x, y, w, h);
+    ctx.drawImage(strip.cv, x + pw, y, w, h);
+    ctx.restore();
+  }
+
+  function drawBakedSigns(bg) {
+    const sb = bgBake.signs;
+    const m = ctx.getTransform();
+    const sc = m.a / renderK;
+    const snap = Math.abs(sc - 1) < 1e-4;
+    const cvW = cv.width;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    for (const cell of sb.cells) {
+      const sg = cell.sg;
+      // the live flicker, verbatim — only the glyph+glow raster is baked
+      const flick = 0.65 + 0.35 * Math.sin(bg.t * 9 + sg.ph);
+      const dead = Math.sin(bg.t * 0.7 + sg.ph * 3) > 0.985; // rare power dropout
+      ctx.globalAlpha = Math.min(1, (dead ? 0.12 : 0.55 * flick + 0.3) / SIGN_BAKE_A);
+      const tX = bg.tile(sg.x, 0.35);
+      let oy = m.d * sg.y + m.f - cell.dy * sc;
+      if (snap) oy = Math.round(oy);
+      for (const xCss of [tX, tX - bg.P]) {
+        let ox = m.a * xCss + m.e - cell.dx * sc;
+        if (snap) ox = Math.round(ox);
+        if (ox > cvW || ox + cell.w * sc < 0) continue;
+        ctx.drawImage(sb.cv, cell.x, 0, cell.w, cell.h,
+                      ox, oy, cell.w * sc, cell.h * sc);
+      }
+    }
+    ctx.restore();
   }
 
   // ---------- Weather/atmosphere ----------
@@ -1113,6 +1421,7 @@ const Scene = (() => {
     },
     // ultra-far skyline — the fourth plane, almost dissolved into the sky
     skyline(bg) {
+      if (bgBake && bgBake.skyline) return blitStrip(bgBake.skyline, bg, 0.05);
       const by = shoreY();
       ctx.fillStyle = 'rgba(10, 10, 26, 0.3)';
       for (const b of bgCache.farfar) {
@@ -1139,6 +1448,7 @@ const Scene = (() => {
     },
     farRow(bg) {
     // city/rack silhouettes (far layer — 0.12, near — 0.35)
+    if (bgBake && bgBake.far) return blitStrip(bgBake.far, bg, 0.12);
     const by = shoreY();
     ctx.fillStyle = 'rgba(8, 8, 20, 0.55)';
     for (const b of bgCache.far) {
@@ -1159,7 +1469,9 @@ const Scene = (() => {
     ctx.fillRect(0, hby - H * 0.4, W, H * 0.4);
     },
     nearRow(bg) {
-
+    // the whole 0.35 group (bodies, rack furniture, cables, masts, windows)
+    // comes back as one baked strip — see bakeNearStrip
+    if (bgBake && bgBake.near) return blitStrip(bgBake.near, bg, 0.35);
     ctx.fillStyle = 'rgba(5, 5, 14, 0.92)';
     for (const b of bgCache.near) {
       const sx = bg.tile(b.x, 0.35);
@@ -1192,18 +1504,23 @@ const Scene = (() => {
     }
     },
     roofs(bg) {
-
+    // cables and antenna masts are static and live in the baked 0.35 strip when
+    // there is one; what this layer still owns per frame is the light — blinking
+    // beacons and flickering billboards
+    const baked = !!(bgBake && bgBake.near);
     ctx.save();
-    ctx.strokeStyle = 'rgba(4, 5, 12, 0.9)';
-    ctx.lineWidth = 1.4;
-    for (const c of bgCache.cables) {
-      for (const off of [0, -bg.P]) {
-        const x1 = bg.tile(c.x1, 0.35) + off, x2 = bg.tile(c.x2, 0.35) + off;
-        if (x2 - x1 <= 0 || x2 - x1 > 300) continue; // gap at the bg.tile seam
-        ctx.beginPath();
-        ctx.moveTo(x1, c.y1);
-        ctx.quadraticCurveTo((x1 + x2) / 2, Math.max(c.y1, c.y2) + c.sag, x2, c.y2);
-        ctx.stroke();
+    if (!baked) {
+      ctx.strokeStyle = 'rgba(4, 5, 12, 0.9)';
+      ctx.lineWidth = 1.4;
+      for (const c of bgCache.cables) {
+        for (const off of [0, -bg.P]) {
+          const x1 = bg.tile(c.x1, 0.35) + off, x2 = bg.tile(c.x2, 0.35) + off;
+          if (x2 - x1 <= 0 || x2 - x1 > 300) continue; // gap at the bg.tile seam
+          ctx.beginPath();
+          ctx.moveTo(x1, c.y1);
+          ctx.quadraticCurveTo((x1 + x2) / 2, Math.max(c.y1, c.y2) + c.sag, x2, c.y2);
+          ctx.stroke();
+        }
       }
     }
     // roofs: antennas with beacons and flickering billboards
@@ -1212,12 +1529,14 @@ const Scene = (() => {
         const rx = bg.tile(rf.x, 0.35) + off;
         if (rx < -80 || rx > W + 80) continue;
         if (rf.type === 'ant') {
-          ctx.strokeStyle = 'rgba(4, 5, 12, 0.95)';
-          ctx.lineWidth = 1.6;
-          ctx.beginPath();
-          ctx.moveTo(rx, rf.y);
-          ctx.lineTo(rx, rf.y - rf.h);
-          ctx.stroke();
+          if (!baked) {
+            ctx.strokeStyle = 'rgba(4, 5, 12, 0.95)';
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.moveTo(rx, rf.y);
+            ctx.lineTo(rx, rf.y - rf.h);
+            ctx.stroke();
+          }
           if (rf.beacon && Math.sin(bg.t * 1.7 + rf.ph) > 0.55) {
             ctx.fillStyle = '#ff4d5e';
             ctx.shadowColor = '#ff4d5e';
@@ -1248,18 +1567,35 @@ const Scene = (() => {
     },
     windows(bg) {
     // windows and LEDs (ride along with the near layer)
+    if (actId !== 'server') {
+      // outdoors a lit window never changes — it is baked into the 0.35 strip
+      if (bgBake && bgBake.near) return;
+      ctx.fillStyle = 'rgba(255, 220, 160, 0.22)';
+      for (const wd of bgCache.windows) {
+        if (!wd.lit) continue;
+        const sx = bg.tile(wd.x, 0.35);
+        ctx.fillRect(sx, wd.y, 5, 7);
+        ctx.fillRect(sx - bg.P, wd.y, 5, 7);
+      }
+      return;
+    }
+    // The server hall's LEDs: every one twinkles on its own continuous phase —
+    // there is no static subset to lift out, and 2-3 baked phases would turn a
+    // smooth sine into visible stepping. The loop stays live; what it no longer
+    // does is build an rgba() string per LED per frame (see SRV_LED).
     for (const wd of bgCache.windows) {
       if (!wd.lit) continue;
-      ctx.fillStyle = actId === 'server'
-        ? `rgba(45, 255, 143, ${0.25 + 0.25 * Math.sin(bg.t * 2 + wd.x) ** 2})`
-        : 'rgba(255, 220, 160, 0.22)';
+      ctx.fillStyle = SRV_LED[(Math.sin(bg.t * 2 + wd.x) ** 2 * 24 + 0.5) | 0];
       const sx = bg.tile(wd.x, 0.35);
       ctx.fillRect(sx, wd.y, 5, 7);
       ctx.fillRect(sx - bg.P, wd.y, 5, 7);
     }
     },
     signs(bg) {
-    // signs: vertical neon text with flicker
+    // signs: vertical neon text with flicker. The glyphs and their glow render
+    // once into the atlas; per frame each sign is one drawImage under its own
+    // flicker alpha — this was ~100 fillText calls at shadowBlur=12 a frame.
+    if (bgBake && bgBake.signs) return drawBakedSigns(bg);
     ctx.save();
     ctx.textAlign = 'center';
     ctx.font = `bold ${Math.round(15 * S)}px sans-serif`;
@@ -1626,6 +1962,7 @@ const Scene = (() => {
   function drawBg(t, dt) {
     const st = ACT_STYLE[actId];
     if (!bgCache) buildBgCache();
+    if (!bgBake) bgBake = buildBgBake(); // rebake alongside the geometry
 
     // Parallax: layers move at different speeds relative to how far the world has
     // travelled. That distance is the hero's own progress plus the scene's drift
@@ -1639,7 +1976,7 @@ const Scene = (() => {
       if (sx < 0) sx += P;
       return sx;
     };
-    const bg = { t, dt, st, P, tile };
+    const bg = { t, dt, st, P, tile, scroll: scrollPx };
     LAYERS.sky(bg);
     if (has('stars')) LAYERS.stars(bg);
     if (has('moon')) LAYERS.moon(bg);
@@ -2895,6 +3232,9 @@ const Scene = (() => {
   function killShadows() {
     if (shadowsOff) return; // the ladder and the settings dial may both ask
     shadowsOff = true;
+    // the sign atlas baked its glow — re-bake without it, or the interceptor
+    // below would kill live glows while the baked ones kept shining
+    bgBake = null;
     Object.defineProperty(ctx, 'shadowBlur', {
       configurable: true, // restorable by the debug override below
       get: () => 0,
@@ -2904,6 +3244,7 @@ const Scene = (() => {
   function restoreShadows() {
     if (!shadowsOff) return;
     shadowsOff = false;
+    bgBake = null; // the glowless sign atlas is stale the same way
     // not a bare delete: that would also lose the reflection interceptor above
     installReflectGuard();
     if (!shadowDesc || !shadowDesc.get || !shadowDesc.set) delete ctx.shadowBlur;
@@ -3241,7 +3582,12 @@ const Scene = (() => {
     // there is no rotation here at all. It used to spin one standing frame about
     // the toes, and a pose that never changes reads as a felled plank however it
     // is transformed. Only a small slide in the direction of the blow remains.
-    const dfr = Math.min(7, Math.floor(k / 0.115));
+    // The fall plays once over DEATH_T and then holds its last frame as the
+    // body. Counted off the sheet like every other animation (see the hero's
+    // frame picker): a re-bake that changes the count must not silently start
+    // wrapping the corpse back to the first pose.
+    const dn = Sprites.frames('hero', 'death');
+    const dfr = Math.min(dn - 1, Math.floor(k / (DEATH_T / dn)));
     ctx.save();
     ctx.translate(cx, groundY);
     ctx.translate(dir * ease * 7 * S, 0);
@@ -3304,12 +3650,42 @@ const Scene = (() => {
       }
       ctx.restore();
     }
+    // The grammar in hand, said where the hand is. The chips in the corner are
+    // the legend and the keypad, and in a fight nobody looks at the corner —
+    // three dots ride over the ronin instead: the held one lit in its own
+    // colour, the ones this run has earned dim beside it, the ones it has not
+    // barely there. Same palette as the chips, so the two read as one thing.
+    // Skipped in the mirror: a HUD reflected in the asphalt is not a reflection.
+    if (run && run.hard && !reflectPass && !cinemaMode) {
+      // above the HEAD, and the head is measured in sprite pixels: the figure
+      // stands 33 of them tall at SPR, which is not the same ladder as S
+      const y = groundY - 33 * SPR - 11 * S;
+      const gap = 9 * S;
+      ctx.save();
+      Game.STANCES.forEach((sname, i) => {
+        const held = run.stance === sname;
+        const open = Game.stanceUnlocked(run, i);
+        const col = STANCE_HUE[sname] || '#ffffff';
+        ctx.globalAlpha = held ? 1 : open ? 0.34 : 0.13;
+        ctx.fillStyle = col;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = held ? 10 : 0;
+        ctx.beginPath();
+        ctx.arc(cx + (i - 1) * gap, y, (held ? 3.4 : 2.1) * S, 0, 7);
+        ctx.fill();
+      });
+      ctx.restore();
+    }
     const age = t - lastSlash.t;
     const slashing = age < 0.16;
     const face = cinemaMode ? 1 : (slashing ? lastSlash.side : (lastSlash.side || 1));
     const color = stunned && Math.floor(t * 20) % 2 ? '#ff5c7a' : '#eaf6ff';
     // the lunge: the body follows the swing a few pixels and settles back —
-    // the camera kick moves the whole frame, this moves the ronin IN the frame
+    // the camera kick moves the whole frame, this moves the ronin IN the frame.
+    // (A phase-curved "step into the cut" was tried here — push-off, planted
+    // impact, walk home, up to 18*S — and so were sprite hybrids with legs
+    // borrowed from the run sheet. None of it read as footwork at 0.32s a
+    // swing; the honest fix remains a purpose-drawn stepping attack row.)
     const lg = slashing && !cinemaMode ? lastSlash.side * (1 - age / 0.16) * 7 * S : 0;
     const hx = cx + lg;
 
@@ -3514,6 +3890,13 @@ const Scene = (() => {
   const eColor = (t) => (ENEMY_STYLE[t] || ENEMY_STYLE.drone).color;
   // the stance palette, shared with the HUD chips in main.js
   const STANCE_HUE = { blade: '#26d6ff', sweep: '#ff5c9e', pierce: '#ffb42d' };
+  // The drone's rotor: one revolution every ROTOR_T, however many frames the
+  // strip turned out to hold. It used to be a bare `t * 18`, tuned by hand to a
+  // four-frame loop — a re-bake to six frames would have quietly slowed the
+  // blades by a third while looking like nothing had changed.
+  const ROTOR_T = 0.22;
+  const rotorFrame = (t, seed) =>
+    Math.floor(t * Sprites.frames('drone', 'fly') / ROTOR_T) + seed;
   // The humanoid-sprite types carry a halo; drone/mimic/boss draw themselves and
   // are absent here on purpose (their presence gates the shared-sprite path).
   const SPRITE_CONF = Object.fromEntries(
@@ -3650,6 +4033,34 @@ const Scene = (() => {
     const flying = isFlying(e.type);
     contactShadow(x, (flying ? 14 : 21) * S, flying ? 0.45 : 1);
 
+    // WHO THE ARC WILL TAKE. The sweep's rule — every body in reach on that
+    // side, in one motion — was true and invisible: the player aimed at one
+    // silhouette and the queue behind it fell with no warning and (until the
+    // strike handler learned to read res.swept) no sound either. While the
+    // hand holds the arc, everything it would carry off wears a bracket in the
+    // grammar's own pink, so the swing is a decision made BEFORE the press.
+    // The exclusions mirror game.js exactly: a chord is not an arc, a parried
+    // stance is still a parry, a hologram is not solid.
+    if (run && Game.stancesOn(run) && run.stance === 'sweep' && d <= reachUnits &&
+        !e.phantom && e.type !== 'twin' && e.fstate !== 'guard' && e.kind !== 'proj' &&
+        // and only what the arc can actually bite: a punk ducks it, and a
+        // bracket over a body the swing will merely shove is a promise broken
+        Game.bodyBites(e, 'sweep')) {
+      const yb = groundY - (flying ? 30 : 4) * S;
+      const w = 13 * S;
+      ctx.save();
+      ctx.strokeStyle = STANCE_HUE.sweep;
+      ctx.shadowColor = STANCE_HUE.sweep;
+      ctx.shadowBlur = 8;
+      ctx.lineWidth = 2 * S;
+      ctx.globalAlpha = 0.55 + 0.25 * Math.sin(t * 6 + e.id);
+      ctx.beginPath();
+      ctx.moveTo(x - w, yb - 4 * S); ctx.lineTo(x - w, yb); ctx.lineTo(x - w + 5 * S, yb);
+      ctx.moveTo(x + w, yb - 4 * S); ctx.lineTo(x + w, yb); ctx.lineTo(x + w - 5 * S, yb);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // sprite humanoid; mechanical overlays (shields, «!», pips) are drawn afterwards on top
     const conf = SPRITE_CONF[e.type];
     let spriteDrawn = false;
@@ -3687,7 +4098,7 @@ const Scene = (() => {
       const y = groundY - 44 * S + Math.sin(t * 4 + e.id) * 5 * S;
       // pixel drone: the hull's underside is the sprite's "feet"; frames spin the rotor
       if (Sprites.ready() &&
-          Sprites.draw(ctx, 'drone', 'fly', Math.floor(t * 18) + e.id, x, y + 13 * S, SPR, face,
+          Sprites.draw(ctx, 'drone', 'fly', rotorFrame(t, e.id), x, y + 13 * S, SPR, face,
             'rgba(255,92,158,0.5)')) {
         return;
       }
@@ -3750,7 +4161,7 @@ const Scene = (() => {
             if (!phantomCtx) { phantomCv = null; return false; }
           }
           const p = phantomCtx;
-          const idx = Math.floor(t * 18) + e.id;
+          const idx = rotorFrame(t, e.id);
           const th = Math.max(1.5, 1.1 * S); // shell thickness
           p.clearRect(0, 0, hgt, hgt);
           p.globalCompositeOperation = 'source-over';
@@ -3791,7 +4202,7 @@ const Scene = (() => {
         let glow = 'rgba(255,92,158,0.5)';
         if (e.revealed) glow = `rgba(255,255,255,${(0.55 + 0.4 * flash).toFixed(2)})`;
         const drew = Sprites.ready() &&
-          Sprites.draw(ctx, 'drone', 'fly', Math.floor(t * 18) + e.id, x, y + 13 * S, SPR, face, glow);
+          Sprites.draw(ctx, 'drone', 'fly', rotorFrame(t, e.id), x, y + 13 * S, SPR, face, glow);
         if (!drew) {
           ctx.save();
           ctx.strokeStyle = eColor('drone');
@@ -4006,7 +4417,7 @@ const Scene = (() => {
         const dy = c.exec ? Math.min(-k * 55 * S + k * k * 100 * S, 44 * S) : k * k * 42 * S;
         ctx.translate(cx + (c.wx - worldVis) * unitPx + c.side * dx, groundY - 44 * S + dy);
         ctx.rotate(k * (c.exec ? 11 : 5) * c.side);
-        if (Sprites.ready() && Sprites.draw(ctx, 'drone', 'fly', 3, 0, 13 * S, SPR, -c.side, null)) {
+        if (Sprites.ready() && Sprites.draw(ctx, 'drone', 'fly', Sprites.frames('drone', 'fly') - 1, 0, 13 * S, SPR, -c.side, null)) {
           ctx.restore();
           continue;
         }
@@ -4455,8 +4866,11 @@ const Scene = (() => {
     }
   }
 
-  function shake(p) { fx.shake = Math.min(18, fx.shake + p); }
-  function flash(color, a) { fx.flash = { color, a }; }
+  // Shake and full-screen flash answer to the impact flag like kick and punch
+  // already do: calm mode (reduced motion) turns the flag off and must silence
+  // every screen-space jolt, not just some of them.
+  function shake(p) { if (fx0.impact) fx.shake = Math.min(18, fx.shake + p); }
+  function flash(color, a) { if (fx0.impact) fx.flash = { color, a }; }
   // a brief zoom pulse around the fighting band — executes, boss deaths, wounds.
   // Capped low: the camera may punctuate a moment, never blur the next read.
   function punch(p) { if (fx0.impact) fx.punch = Math.min(0.055, fx.punch + p); }
@@ -4674,6 +5088,7 @@ const Scene = (() => {
     groundY = H * horizonOf();
     alignDeck();
     bgCache = null;
+    bgBake = null;  // strips are per-act; also frees the old act's ~25 MB
     gradCache = {}; // gradients carry the act's palette and horizon
     initWeather();
     initTraffic();
@@ -4979,6 +5394,6 @@ const Scene = (() => {
   initTraffic();
 
   return { render, setAct, setCinema, setWeather, slash, burst, floatText, phantomScatter, bolt, corpse, heroDie, heroHurt, shake, flash, punch, gust,
-           stanceFlash, enemyColor: eColor,
+           stanceFlash, enemyColor: eColor, STANCE_HUE,
     setPeril, glint, heroShock, setFx, getFx: () => fx0, setQuality, X: (side, dist) => X(side, dist) };
 })();

@@ -10,7 +10,7 @@ const LANG_KEY = 'cyber-ronin-lang';
 const initialLang = localStorage.getItem(LANG_KEY)
   || (() => {
     const nav = (navigator.language || 'en').toLowerCase().slice(0, 2);
-    return ['ru', 'en', 'es', 'de', 'fr', 'ja'].includes(nav) ? nav : 'en';
+    return LANGS.some(l => l.code === nav) ? nav : 'en'; // roster lives in lang.js
   })();
 Game.setLang(initialLang);
 
@@ -55,13 +55,15 @@ function clearSave() {
 const SET_KEY = 'cyber-ronin-settings';
 
 const settings = (() => {
-  const s = { musicVol: 1, sfxVol: 1, gfx: 'auto' };
+  const s = { musicVol: 1, sfxVol: 1, gfx: 'auto', calm: 'auto' };
   try { Object.assign(s, JSON.parse(localStorage.getItem(SET_KEY)) || {}); }
   catch (e) { /* corrupted — defaults stand */ }
   const vol = v => Math.min(1, Math.max(0, +v || 0));
   s.musicVol = vol(s.musicVol);
   s.sfxVol = vol(s.sfxVol);
   if (!['auto', 'high', 'medium', 'low'].includes(s.gfx)) s.gfx = 'auto';
+  // calm mode drops shake/flashes/grain; 'auto' obeys the OS "reduce motion"
+  if (!['auto', 'on', 'off'].includes(s.calm)) s.calm = 'auto';
   return s;
 })();
 

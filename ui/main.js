@@ -23,7 +23,7 @@ const STR = {
   tabCampaign: ['КАМПАНИЯ', 'CAMPAIGN'],
   tabMaster:  ['ТРИ СТОЙКИ', 'THREE STANCES'],
   tabEndless: ['БЕСКОНЕЧНОСТЬ', 'ENDLESS'],
-  btnShop:    ['💾 ПРОШИВКА', '💾 FIRMWARE'],
+  btnShop:    ['🔩 УЛУЧШЕНИЯ', '🔩 UPGRADES'],
   btnAch:     ['🏆 ТРОФЕИ', '🏆 TROPHIES'],
   btnLog:     ['📓 ЖУРНАЛ', '📓 JOURNAL'],
   logTitle:   ['ЖУРНАЛ', 'JOURNAL'],
@@ -39,7 +39,7 @@ const STR = {
   winTitle:   ['ПУТЬ ПРОЙДЕН', 'THE PATH IS WALKED'],
   winSub:     ['рассвет над аркологией. город свободен', 'dawn over the arcology. the city is free'],
   btnNewPath: ['⟳ НОВЫЙ ПУТЬ', '⟳ NEW PATH'],
-  shopTitle:  ['ПРОШИВКА', 'FIRMWARE'],
+  shopTitle:  ['УЛУЧШЕНИЯ', 'UPGRADES'],
   shopSub:    ['постоянные улучшения серии — переживают смерть экземпляра', 'the series’ permanent upgrades — they survive the instance'],
   btnBack:    ['НАЗАД', 'BACK'],
   helpTitle:  ['КАК ИГРАТЬ', 'HOW TO PLAY'],
@@ -63,6 +63,11 @@ const STR = {
   gfxLow:     ['НИЗКАЯ', 'LOW'],
   setGfxHint: ['авто само снижает качество, если кадры проседают',
                'auto lowers quality by itself when frames drop'],
+  setCalm:    ['СПОКОЙНЫЙ РЕЖИМ', 'CALM MODE'],
+  calmOn:     ['ВКЛ', 'ON'],
+  calmOff:    ['ВЫКЛ', 'OFF'],
+  setCalmHint: ['без тряски камеры, вспышек и зерна; авто слушает системное «меньше движения»',
+                'no camera shake, flashes or grain; auto follows the system’s "reduce motion"'],
 };
 
 // ---------- Story ----------
@@ -129,8 +134,8 @@ function deathLine() {
 // spells out exactly what is lost, because none of it can be recovered.
 const RESET_STR = {
   arm:  ['НАЖМИ ЕЩЁ РАЗ, ЧТОБЫ СТЕРЕТЬ', 'CLICK AGAIN TO ERASE'],
-  warn: ['кредиты, прошивка, трофеи и рекорды — безвозвратно',
-         'credits, firmware, trophies and records — permanently'],
+  warn: ['кредиты, улучшения, трофеи и рекорды — безвозвратно',
+         'credits, upgrades, trophies and records — permanently'],
   done: ['ПРОГРЕСС СТЁРТ', 'PROGRESS ERASED'],
 };
 const RESET_ARM_TIME = 4000; // ms the armed state lasts before it disarms itself
@@ -155,10 +160,10 @@ const HELP_PARAGRAPHS = [
    `A <b>Warden</b> ends each act: strike him in the zone and repeat the arrow sequence in tempo. A mistake or delay costs armor, and he comes again. Each Warden has a signature trick: wind gusts, <b>glitch arrows</b> (strike the opposite way), summoned backup.`],
   [`Со второго акта волна может прийти с <b>мутатором</b> — особым правилом (шквал, туман, дождь стали, блиц). Убийства на такой волне платят больше кредитов.`,
    `From act two a wave may arrive with a <b>mutator</b> — a special rule (squall, fog, steel rain, blitz). Kills on such a wave pay extra credits.`],
-  [`После каждой волны — выбор одного из трёх <b>имплантов</b>: они живут ровно один забег. После смерти кредиты остаются — трать их на <b>прошивку</b>, постоянные улучшения, которые переживают смерть. Первая победа открывает <b>бесконечность</b>: акты идут по кругу, рекорд — число волн.`,
-   `After each wave — pick one of three <b>implants</b>: they live for exactly one run. Credits survive death — spend them on <b>firmware</b>, the permanent upgrades that outlive it. The first victory unlocks <b>endless</b>: acts cycle, the record is your wave count.`],
-  [`<b>Сид дня</b> — забег на общем для всех сиде: волны у всех одинаковые. <b>Прошивка</b> (постоянные улучшения из магазина) на этот забег отключена — доска сравнивает руки, а не кошельки; обычные импланты после волн работают как всегда. Попыток сколько угодно — на доску дня идёт лучший результат. <b>Сид месяца</b> — то же самое, но бесконечный забег на общем сиде всего календарного месяца; рекорд — волны.`,
-   `The <b>daily seed</b> — a run on a seed shared by everyone: identical waves. <b>Firmware</b> (the shop's permanent upgrades) is offline for this run — the board compares hands, not wallets; ordinary implants after waves work as always. Attempts are unlimited — the day's board keeps your best result. The <b>monthly seed</b> is the same contract as an endless run on one seed shared for the calendar month; the record is waves.`],
+  [`После каждой волны — выбор одного из трёх <b>имплантов</b>: они живут ровно один забег. После смерти кредиты остаются — трать их на <b>улучшения</b> — постоянные, которые переживают смерть. Первая победа открывает <b>бесконечность</b>: акты идут по кругу, рекорд — число волн.`,
+   `After each wave — pick one of three <b>implants</b>: they live for exactly one run. Credits survive death — spend them on <b>upgrades</b>, the permanent ones that outlive it. The first victory unlocks <b>endless</b>: acts cycle, the record is your wave count.`],
+  [`<b>Сид дня</b> — забег на общем для всех сиде: волны у всех одинаковые. <b>Улучшения</b> (постоянные, из магазина) на этот забег отключены — доска сравнивает руки, а не кошельки; обычные импланты после волн работают как всегда. Попыток сколько угодно — на доску дня идёт лучший результат. <b>Сид месяца</b> — то же самое, но бесконечный забег на общем сиде всего календарного месяца; рекорд — волны.`,
+   `The <b>daily seed</b> — a run on a seed shared by everyone: identical waves. <b>Upgrades</b> (the shop's permanent ones) are offline for this run — the board compares hands, not wallets; ordinary implants after waves work as always. Attempts are unlimited — the day's board keeps your best result. The <b>monthly seed</b> is the same contract as an endless run on one seed shared for the calendar month; the record is waves.`],
   [`<b>Esc</b> — пауза. На паузе показывают разбор текущей обстановки: правило мутатора волны, а во время боя со стражем — как именно его убивать.`,
    `<b>Esc</b> — pause. The pause screen breaks down the current situation: the wave mutator's rule, and during a Warden fight, exactly how to kill him.`],
 ];
@@ -170,7 +175,13 @@ function applyLang() {
   document.title = en ? 'Cyber Ronin' : 'Кибер-ронин';
   for (const el of document.querySelectorAll('[data-i18n-title]')) {
     const s = STR[el.dataset.i18nTitle];
-    if (s) el.title = L(...s); // icons carry their name in the tooltip and the pad cursor
+    if (!s) continue;
+    el.title = L(...s); // the tooltip and the pad cursor
+    // ...and the caption under the glyph, where there is one. The strings carry
+    // their own emoji ("🔩 УЛУЧШЕНИЯ") — the button already shows it, so the
+    // caption takes what follows the first space.
+    const cap = el.querySelector('.cap');
+    if (cap) cap.textContent = L(...s).replace(/^\S+\s+/, '');
   }
   for (const el of document.querySelectorAll('[data-i18n]')) {
     const pair = STR[el.dataset.i18n];
@@ -254,22 +265,31 @@ function renderMenu() {
   be.title = unlocked ? '' : L('открывается после победы во всех шести актах',
     'unlocks after clearing all six acts');
   // the monthly seed: an endless run on a seed shared for the calendar month —
-  // same unlock as endless, same firmware freeze as the daily
+  // same unlock as endless, same upgrade freeze as the daily
   const bm = $('btn-monthly');
   bm.disabled = !unlocked;
   bm.classList.toggle('locked', !unlocked);
   bm.title = unlocked
-    ? L('общий бесконечный сид на весь месяц, прошивка отключена — рекорд в волнах',
-        'one shared endless seed for the whole month, firmware offline — the record is waves')
+    ? L('общий бесконечный сид на весь месяц, улучшения отключены — рекорд в волнах',
+        'one shared endless seed for the whole month, upgrades offline — the record is waves')
     : L('открывается после победы во всех шести актах', 'unlocks after clearing all six acts');
   // the daily: retries are free, the board keeps the day's best
   const daily = state.meta[Game.dailySlot(state, Game.wayHard(state))];
   const played = !!(daily && daily.date === todayStr() && daily.done);
   $('btn-daily').title =
-    L('общий сид, прошивка отключена — на доску идёт лучший результат дня',
-      'a shared seed, firmware offline — the board keeps the day’s best');
+    L('общий сид, улучшения отключены — на доску идёт лучший результат дня',
+      'a shared seed, upgrades offline — the board keeps the day’s best');
   // the board button exists only while the online piece is configured
   $('btn-board').classList.toggle('hidden', !Board.enabled());
+  // The upgrades shelf lights up only when there is something on it you can
+  // actually afford right now — a rare, earned signal rather than a permanent
+  // badge. A row of quiet icons was being walked past; this is the one of them
+  // that has news often enough to be worth saying out loud.
+  const canBuy = Game.META.some(m =>
+    Game.metaLvl(state, m.id) < m.cap &&
+    !(m.way === 'stance' && !Game.wayHard(state)) &&
+    state.meta.credits >= Game.metaCost(state, m));
+  $('btn-shop').classList.toggle('has-offer', canBuy);
   // the champion's frame: today's №1 on the board of the way you are holding
   Board.champ($('menu-champ'), Board.wayKey(todayStr(), Game.wayHard(state)), () => startGame('daily'));
   renderWay();
@@ -332,7 +352,7 @@ function renderShop() {
   list.innerHTML = '';
   for (const m of Game.META) {
     const lvl = Game.metaLvl(state, m.id);
-    // A way's own firmware stays on the shelf either way — greyed out and
+    // A way's own upgrade stays on the shelf either way — greyed out and
     // saying why, rather than vanishing: a shop that hides its stock teaches
     // nothing, and a player who never sees the line never learns it exists.
     const offWay = m.way === 'stance' && !Game.wayHard(state);
@@ -634,7 +654,10 @@ const STANCE_STR = {
   sweep:  ['ВИХРЬ', 'SWEEP'],
   pierce: ['ПРОБОЙ', 'PIERCE'],
 };
-const STANCE_COLOR = { blade: '#26d6ff', sweep: '#ff5c9e', pierce: '#ffb42d' };
+// The stance palette lives in scene.js (STANCE_HUE): the canvas paints halos,
+// seals and chain digits with it, so the chips must read the same source —
+// a second copy of the hexes here once waited to drift on the first retune.
+const STANCE_COLOR = Scene.STANCE_HUE;
 const STANCE_CLASSES = ['drone', 'punk', 'shield'];
 
 function doStance(idx) {
@@ -680,19 +703,31 @@ function buildStanceChips() {
   renderStance();
 }
 
+// The act that hands each grammar over — for the lock's own explanation.
+const STANCE_OPENS = [0, Game.STANCE_ACT, Game.PIERCE_ACT];
+
 function renderStance() {
   const cur = state.run ? state.run.stance : 'blade';
   const box = $('hud-stance');
-  // the first act has one grammar and says nothing about the others
-  box.classList.toggle('hidden', !Game.stancesOn(state.run));
-  if (!Game.stancesOn(state.run)) return;
+  // The chips belong to the harder way, not to the act that finishes teaching
+  // it: on the stance road the first act now shows the vocabulary from the
+  // first wave — the held grammar lit, the two still closed dimmed and saying
+  // which act opens them. It cannot be switched there (only the blade is
+  // unlocked, so setStance and the ring both refuse), and that is the point:
+  // the primer act shows the shape of the road without handing over its rules.
+  const on = !!(state.run && state.run.hard);
+  box.classList.toggle('hidden', !on);
+  if (!on) return;
   if (box.childElementCount !== Game.STANCES.length) { buildStanceChips(); return; }
   const every = Game.MOMENTUM_EVERY[Game.metaLvl(state, 'mmomentum')] || 0;
   const charged = every > 0 && state.run && (state.run.sameStance + 1) % every === 0;
   Game.STANCES.forEach((st, i) => {
     const chip = box.children[i];
-    chip.classList.toggle('hidden', !Game.stanceUnlocked(state.run, i));
-    chip.classList.toggle('on', st === cur);
+    const open = Game.stanceUnlocked(state.run, i);
+    chip.classList.toggle('locked', !open);
+    chip.title = open ? '' : F('открывается в акте {a}', 'opens in act {a}',
+      { a: romanAct(STANCE_OPENS[i]) });
+    chip.classList.toggle('on', open && st === cur);
     // Blade Momentum: the held grammar lights up when the next press is charged
     chip.classList.toggle('charged', charged && st === cur);
     chip.querySelector('.nm').textContent = L(...STANCE_STR[st]);
@@ -956,12 +991,12 @@ function startGame(mode) {
   if (mode === 'endless') showActBanner(1);
   else if (mode === 'daily') {
     popBanner(L('СИД ДНЯ', 'DAILY SEED'), todayStr(),
-      L('общий сид · прошивка отключена · лучший результат — на доску',
-        'shared seed · firmware offline · your best goes on the board'));
+      L('общий сид · улучшения отключены · лучший результат — на доску',
+        'shared seed · upgrades offline · your best goes on the board'));
   } else if (mode === 'monthly') {
     popBanner(L('СИД МЕСЯЦА', 'MONTHLY SEED'), monthStr(),
-      L('общий сид · прошивка отключена · рекорд — волны',
-        'shared seed · firmware offline · the record is waves'));
+      L('общий сид · улучшения отключены · рекорд — волны',
+        'shared seed · upgrades offline · the record is waves'));
   } else startCinema(CINE_INTRO, () => showActBanner(1));
 }
 
@@ -1339,6 +1374,26 @@ function handleStrikeEvent(ev) {
   if (ev.opened) {
     Scene.floatText(L('ОКНО!', 'OPENING!'), ev.opened.side, ev.opened.dist, '#2dff8f');
     handleStrikeEvent(ev.opened);
+  }
+  // The rest of the arc. The engine has always reported these (res.swept) and
+  // NOTHING here ever read the field: every body the sweep took beyond the
+  // first one died in total silence — no corpse, no burst, no sound, just a
+  // silhouette gone from the road. That is what made the arc unreadable, and
+  // why finishing a shielder looked like it killed the man queued behind him
+  // for no reason. They are presented one rank quieter than the target so the
+  // swing still has a centre: their own corpse and burst where they stand, a
+  // softer sound, and none of the streak's punctuation — the hitstop, the pad
+  // and the combo note belong to the press, not to what the press swept up.
+  for (const sub of ev.swept || []) {
+    const pan = sidePan(sub.side, sub.dist);
+    if (sub.type === 'kill') {
+      Scene.corpse(sub.side, sub.dist, sub.enemy, 1, false);
+      Scene.burst(sub.side, sub.dist, '#ff5c9e', 12);
+      Sound.sfx('kill', comboPitch(), pan, sub.enemy);
+    } else if (sub.type === 'hit') {
+      Scene.burst(sub.side, Math.min(sub.dist, Game.range(state)), '#ffd98a', 5);
+      Sound.sfx('slash', comboPitch(), pan, sub.enemy);
+    }
   }
 }
 
@@ -1776,12 +1831,16 @@ document.addEventListener('keydown', e => {
   if (replay && code === 'Space') { cycleReplaySpeed(); return; }
   if (code === 'Escape') { pressEscape(); return; }
   // stances: the digits pick one outright, Space walks the ring for hands that
-  // would rather keep a thumb on one key
-  if (code === 'Digit1' || code === 'Numpad1') { doStance(0); return; }
-  if (code === 'Digit2' || code === 'Numpad2') { doStance(1); return; }
-  if (code === 'Digit3' || code === 'Numpad3') { doStance(2); return; }
-  if (code === 'Space' || code === 'KeyS' || code === 'ArrowDown') { doStanceCycle(1); return; }
-  if (code === 'KeyW' || code === 'ArrowUp') { doStanceCycle(-1); return; }
+  // would rather keep a thumb on one key. The whole block only exists in
+  // combat: an unguarded `return` here once swallowed Space on the menu and
+  // made the Space-to-start branch below unreachable.
+  if (state.phase === 'combat' && !paused && !replay) {
+    if (code === 'Digit1' || code === 'Numpad1') { doStance(0); return; }
+    if (code === 'Digit2' || code === 'Numpad2') { doStance(1); return; }
+    if (code === 'Digit3' || code === 'Numpad3') { doStance(2); return; }
+    if (code === 'Space' || code === 'KeyS' || code === 'ArrowDown') { doStanceCycle(1); return; }
+    if (code === 'KeyW' || code === 'ArrowUp') { doStanceCycle(-1); return; }
+  }
   // hidden wave skip — the run stops counting toward records from here on
   if (code === 'KeyK' && e.ctrlKey && e.shiftKey) {
     e.preventDefault();
@@ -1861,7 +1920,7 @@ function padNavMove(d) {
 
 function padNavConfirm() {
   if (padFocus && document.contains(padFocus)) {
-    // a click may rebuild the screen (buying firmware re-renders the shop) —
+    // a click may rebuild the screen (buying an upgrade re-renders the shop) —
     // put the cursor back where the list now has a same-numbered button
     const i = padNavList().indexOf(padFocus);
     padFocus.click();
@@ -2005,7 +2064,25 @@ function renderSettings() {
   }
   for (const b of document.querySelectorAll('#gfx-tabs button'))
     b.classList.toggle('primary', b.dataset.gfx === settings.gfx);
+  for (const b of document.querySelectorAll('#calm-tabs button'))
+    b.classList.toggle('primary', b.dataset.calm === settings.calm);
 }
+
+// ---------- Calm mode ----------
+// One switch for players whom motion hurts: no camera shake, no full-screen
+// flashes, no film grain. 'auto' defers to the OS-level "reduce motion" —
+// the setting a player made once, for every program at once — and follows it
+// live if it changes while the game is open. Impact and grain route through
+// Scene.setFx, the CSS glitches through a body class.
+const calmQuery = matchMedia('(prefers-reduced-motion: reduce)');
+
+function applyCalm() {
+  const calm = settings.calm === 'on' || (settings.calm === 'auto' && calmQuery.matches);
+  Scene.setFx('impact', !calm);
+  Scene.setFx('grain', !calm);
+  document.body.classList.toggle('calm', calm);
+}
+calmQuery.addEventListener('change', applyCalm);
 
 function bindVolume(id, key) {
   const el = $(id);
@@ -2027,6 +2104,16 @@ for (const b of document.querySelectorAll('#gfx-tabs button')) {
   b.addEventListener('click', () => {
     settings.gfx = b.dataset.gfx;
     Scene.setQuality(settings.gfx);
+    saveSettings();
+    Sound.sfx('ui');
+    renderSettings();
+  });
+}
+
+for (const b of document.querySelectorAll('#calm-tabs button')) {
+  b.addEventListener('click', () => {
+    settings.calm = b.dataset.calm;
+    applyCalm();
     saveSettings();
     Sound.sfx('ui');
     renderSettings();
@@ -2088,6 +2175,14 @@ $('btn-help').addEventListener('click', () => { shopReturnTo = 'menu'; showScree
 $('btn-ach').addEventListener('click', () => showScreen('ach'));
 $('btn-log').addEventListener('click', () => showScreen('log'));
 $('btn-log-back').addEventListener('click', () => showScreen('menu'));
+// The dropdown's options come from the LANGS roster (lang.js) — built once,
+// before the initial applyLang() below sets the current value.
+for (const { code, label } of LANGS) {
+  const o = document.createElement('option');
+  o.value = code;
+  o.textContent = label;
+  $('lang-select').appendChild(o);
+}
 $('lang-select').addEventListener('change', e => {
   const next = e.target.value;
   Game.setLang(next);
@@ -2252,7 +2347,11 @@ function loop(t) {
   // Double smoothing against jolts: smoothstep over distance (soft edges of
   // acceleration and braking) + exponential over time (no frame-to-frame jumps).
   let warpTarget = 1;
-  if (state.phase === 'combat' && slowmo <= 0 && hitstop <= 0 && !Debug.noWarp) {
+  // Not under a travelling shot: combat is frozen there but the scene clock is
+  // not, and the intro opens with the crowd far away — full fast-forward. The
+  // hero's cutscene run is timed in scene seconds, so the warp played it at
+  // 5.5x: a calm jog turned into mincing every single campaign start.
+  if (state.phase === 'combat' && !cinema && slowmo <= 0 && hitstop <= 0 && !Debug.noWarp) {
     // threshold on time-to-contact: beyond 3.3s — full fast-forward, under 1.5s — normal
     const eta = Game.threatEta(state);
     const k = Math.min(1, Math.max(0, (eta - 1.5) / 1.8));
@@ -2364,6 +2463,7 @@ applyLang();
 Sound.setFlag('musicVol', settings.musicVol);
 Sound.setFlag('sfxVol', settings.sfxVol);
 Scene.setQuality(settings.gfx);
+applyCalm();
 $('game-version').textContent = 'v' + Game.VERSION;
 showScreen('menu');
 

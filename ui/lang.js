@@ -8,8 +8,23 @@
 // translates them. Editing a Russian source string retires its row here to
 // the English fallback — update the row to bring the translation back.
 
+// The single roster of shipped languages. Everyone else derives from it:
+// core.js matches the system locale against it, main.js builds the menu
+// dropdown from it, the overlay CODES below are it minus the built-in pair.
+// Adding a seventh language = one entry here + a column in ROWS.
+// Labels are native names on purpose — a language picker must be readable
+// in the language it offers, not the one currently set.
+const LANGS = [
+  { code: 'ru', label: 'Русский' },
+  { code: 'en', label: 'English' },
+  { code: 'es', label: 'Español' },
+  { code: 'de', label: 'Deutsch' },
+  { code: 'fr', label: 'Français' },
+  { code: 'ja', label: '日本語' },
+];
+
 (() => {
-const CODES = ['es', 'de', 'fr', 'ja'];
+const CODES = LANGS.map(l => l.code).filter(c => c !== 'ru' && c !== 'en');
 const ROWS = [
   // ---------- Menu & chrome ----------
   ['путь клинка через неоновый город',
@@ -19,7 +34,7 @@ const ROWS = [
   ['♾ БЕСКОНЕЧНОСТЬ', '♾ INFINITO', '♾ ENDLOS', '♾ INFINI', '♾ エンドレス'],
   ['🗓 СИД ДНЯ', '🗓 SEMILLA DEL DÍA', '🗓 TAGES-SEED', '🗓 GRAINE DU JOUR', '🗓 デイリーシード'],
   ['🏅 ДОСКИ', '🏅 TABLAS', '🏅 BESTENLISTEN', '🏅 CLASSEMENTS', '🏅 ランキング'],
-  ['💾 ПРОШИВКА', '💾 FIRMWARE', '💾 FIRMWARE', '💾 FIRMWARE', '💾 ファームウェア'],
+  ['🔩 УЛУЧШЕНИЯ', '🔩 MEJORAS', '🔩 UPGRADES', '🔩 AMÉLIORATIONS', '🔩 アップグレード'],
   ['🏆 ТРОФЕИ', '🏆 TROFEOS', '🏆 TROPHÄEN', '🏆 TROPHÉES', '🏆 トロフィー'],
   ['📓 ЖУРНАЛ', '📓 DIARIO', '📓 JOURNAL', '📓 JOURNAL', '📓 ジャーナル'],
   ['❔ КАК ИГРАТЬ', '❔ CÓMO JUGAR', '❔ SPIELANLEITUNG', '❔ COMMENT JOUER', '❔ 遊び方'],
@@ -35,9 +50,9 @@ const ROWS = [
   ['⌫ СБРОСИТЬ ПРОГРЕСС', '⌫ BORRAR PROGRESO', '⌫ FORTSCHRITT LÖSCHEN', '⌫ EFFACER LA PROGRESSION', '⌫ 進行データを消去'],
   ['НАЖМИ ЕЩЁ РАЗ, ЧТОБЫ СТЕРЕТЬ', 'PULSA OTRA VEZ PARA BORRAR', 'ZUM LÖSCHEN ERNEUT KLICKEN',
     'CLIQUEZ ENCORE POUR EFFACER', 'もう一度押すと消去します'],
-  ['кредиты, прошивка, трофеи и рекорды — безвозвратно',
-    'créditos, firmware, trofeos y récords — para siempre', 'Credits, Firmware, Trophäen und Rekorde — unwiderruflich',
-    'crédits, firmware, trophées et records — définitivement', 'クレジット・ファームウェア・トロフィー・記録——全て永久に'],
+  ['кредиты, улучшения, трофеи и рекорды — безвозвратно',
+    'créditos, mejoras, trofeos y récords — para siempre', 'Credits, Upgrades, Trophäen und Rekorde — unwiderruflich',
+    'crédits, améliorations, trophées et records — définitivement', 'クレジット・アップグレード・トロフィー・記録——全て永久に'],
   ['ПРОГРЕСС СТЁРТ', 'PROGRESO BORRADO', 'FORTSCHRITT GELÖSCHT', 'PROGRESSION EFFACÉE', '進行データを消去しました'],
 
   // ---------- Screens ----------
@@ -61,7 +76,7 @@ const ROWS = [
     'amanecer sobre la arcología. la ciudad es libre', 'Morgengrauen über der Arkologie. Die Stadt ist frei',
     'l’aube sur l’arcologie. la ville est libre', 'アーコロジーの夜明け。都市は自由になった'],
   ['⟳ НОВЫЙ ПУТЬ', '⟳ NUEVO CAMINO', '⟳ NEUER WEG', '⟳ NOUVELLE VOIE', '⟳ 新たな道'],
-  ['ПРОШИВКА', 'FIRMWARE', 'FIRMWARE', 'FIRMWARE', 'ファームウェア'],
+  ['УЛУЧШЕНИЯ', 'MEJORAS', 'UPGRADES', 'AMÉLIORATIONS', 'アップグレード'],
   ['постоянные улучшения серии — переживают смерть экземпляра',
     'mejoras permanentes de la serie — sobreviven a la muerte del ejemplar',
     'permanente Verbesserungen der Serie — sie überleben den Tod des Exemplars',
@@ -80,16 +95,16 @@ const ROWS = [
   ['МЕСЯЦ', 'MES', 'MONAT', 'MOIS', '月間'],
   ['🌙 СИД МЕСЯЦА', '🌙 SEMILLA DEL MES', '🌙 MONATS-SEED', '🌙 GRAINE DU MOIS', '🌙 マンスリーシード'],
   ['СИД МЕСЯЦА', 'SEMILLA DEL MES', 'MONATS-SEED', 'GRAINE DU MOIS', 'マンスリーシード'],
-  ['общий сид · прошивка отключена · рекорд — волны',
-    'semilla común · firmware apagado · el récord son oleadas',
-    'gemeinsamer Seed · Firmware aus · der Rekord sind Wellen',
-    'graine commune · firmware coupé · le record, ce sont les vagues',
-    '共通シード・ファームウェア停止・記録はウェーブ数'],
-  ['общий бесконечный сид на весь месяц, прошивка отключена — рекорд в волнах',
-    'una semilla infinita común para todo el mes, firmware apagado — el récord en oleadas',
-    'ein gemeinsamer Endlos-Seed für den ganzen Monat, Firmware aus — der Rekord in Wellen',
-    'une graine infinie commune pour tout le mois, firmware coupé — le record en vagues',
-    'ひと月共通のエンドレスシード。ファームウェア停止——記録はウェーブ数'],
+  ['общий сид · улучшения отключены · рекорд — волны',
+    'semilla común · mejoras apagadas · el récord son oleadas',
+    'gemeinsamer Seed · Upgrades aus · der Rekord sind Wellen',
+    'graine commune · améliorations coupées · le record, ce sont les vagues',
+    '共通シード・アップグレード停止・記録はウェーブ数'],
+  ['общий бесконечный сид на весь месяц, улучшения отключены — рекорд в волнах',
+    'una semilla infinita común para todo el mes, mejoras apagadas — el récord en oleadas',
+    'ein gemeinsamer Endlos-Seed für den ganzen Monat, Upgrades aus — der Rekord in Wellen',
+    'une graine infinie commune pour tout le mois, améliorations coupées — le record en vagues',
+    'ひと月共通のエンドレスシード。アップグレード停止——記録はウェーブ数'],
   ['сид месяца: {n} волн', 'semilla del mes: {n} oleadas', 'Monats-Seed: {n} Wellen',
     'graine du mois : {n} vagues', 'マンスリーシード: {n}ウェーブ'],
   ['ТАБЛИЦА МЕСЯЦА', 'TABLA DEL MES', 'TAFEL DES MONATS', 'TABLEAU DU MOIS', '月間ランキング'],
@@ -181,16 +196,16 @@ const ROWS = [
   ['установлено', 'instalado', 'installiert', 'installé', '装着済み'],
 
   // ---------- Daily ----------
-  ['общий сид · прошивка отключена · лучший результат — на доску',
-    'semilla común · firmware apagado · el mejor resultado va a la tabla',
-    'gemeinsamer Seed · Firmware aus · das beste Ergebnis kommt auf die Liste',
-    'graine commune · firmware coupé · le meilleur résultat va au classement',
-    '共通シード・ファームウェア停止・ベスト記録がランキングへ'],
-  ['общий сид, прошивка отключена — на доску идёт лучший результат дня',
-    'semilla común, firmware apagado — a la tabla va lo mejor del día',
-    'gemeinsamer Seed, Firmware aus — das Tagesbeste kommt auf die Liste',
-    'graine commune, firmware coupé — le meilleur du jour va au classement',
-    '共通シード・ファームウェア停止——その日のベストが記録される'],
+  ['общий сид · улучшения отключены · лучший результат — на доску',
+    'semilla común · mejoras apagadas · el mejor resultado va a la tabla',
+    'gemeinsamer Seed · Upgrades aus · das beste Ergebnis kommt auf die Liste',
+    'graine commune · améliorations coupées · le meilleur résultat va au classement',
+    '共通シード・アップグレード停止・ベスト記録がランキングへ'],
+  ['общий сид, улучшения отключены — на доску идёт лучший результат дня',
+    'semilla común, mejoras apagadas — a la tabla va lo mejor del día',
+    'gemeinsamer Seed, Upgrades aus — das Tagesbeste kommt auf die Liste',
+    'graine commune, améliorations coupées — le meilleur du jour va au classement',
+    '共通シード・アップグレード停止——その日のベストが記録される'],
 
   ['враги идут с двух сторон. у тебя две кнопки. этого достаточно',
     'los enemigos vienen de ambos lados. tienes dos botones. es suficiente',
@@ -254,7 +269,7 @@ const ROWS = [
   ['+35% времени на цепочку стража', '+35% de tiempo en la cadena del guardián', '+35% Zeit für die Wächterkette',
     '+35% de temps sur la chaîne du gardien', '番人チェーンの制限時間+35%'],
 
-  // ---------- Firmware ----------
+  // ---------- Upgrades ----------
   ['Подкожная броня', 'Blindaje subdérmico', 'Subdermale Panzerung', 'Armure sous-cutanée', '皮下アーマー'],
   ['+1 стартовая броня', '+1 blindaje inicial', '+1 Start-Panzerung', '+1 armure de départ', '開始アーマー+1'],
   ['Удлинённый клинок', 'Hoja extendida', 'Verlängerte Klinge', 'Lame allongée', '延長ブレード'],
@@ -793,6 +808,9 @@ const ROWS = [
   ['ПУТЬ ТРЁХ СТОЕК', 'LA VÍA DE LAS TRES GUARDIAS', 'WEG DER DREI HALTUNGEN',
     'LA VOIE DES TROIS GARDES', '三つの構えの道'],
   ['ТРИ СТОЙКИ', 'TRES GUARDIAS', 'DREI HALTUNGEN', 'TROIS GARDES', '三つの構え'],
+  ['ОБЫЧНЫЙ ПУТЬ', 'LA VÍA NORMAL', 'DER SCHLICHTE WEG', 'LA VOIE ORDINAIRE', '通常の道'],
+  ['открывается в акте {a}', 'se abre en el acto {a}', 'öffnet sich in Akt {a}',
+    's’ouvre à l’acte {a}', 'アクト{a}で解放'],
   ['ДОСКА ТРЁХ СТОЕК', 'TABLA DE LAS TRES GUARDIAS', 'BESTENLISTE DER DREI HALTUNGEN',
     'CLASSEMENT DES TROIS GARDES', '三つの構えのランキング'],
   ['та же дорога — но клинок держит три грамматики, и каждого врага берут лишь две из трёх',
@@ -831,16 +849,16 @@ const ROWS = [
     'Ab dem zweiten Akt kann eine Welle mit einem <b>Mutator</b> kommen — einer Sonderregel (Böe, Nebel, Stahlregen, Blitz). Kills in so einer Welle zahlen mehr Credits.',
     'Dès le deuxième acte, une vague peut arriver avec un <b>mutateur</b> — une règle spéciale (bourrasque, brouillard, pluie d’acier, blitz). Les victimes de cette vague paient plus de crédits.',
     '第二アクト以降、ウェーブは<b>変異</b>付きで来ることがある——特殊ルール（スコール・霧・鋼の雨・ブリッツ）だ。そのウェーブでの撃破は多くのクレジットを払う。'],
-  ['После каждой волны — выбор одного из трёх <b>имплантов</b>: они живут ровно один забег. После смерти кредиты остаются — трать их на <b>прошивку</b>, постоянные улучшения, которые переживают смерть. Первая победа открывает <b>бесконечность</b>: акты идут по кругу, рекорд — число волн.',
-    'Tras cada oleada eliges uno de tres <b>implantes</b>: viven exactamente una carrera. Al morir, los créditos quedan — gástalos en <b>firmware</b>, mejoras permanentes que sobreviven a la muerte. La primera victoria abre el <b>infinito</b>: los actos giran en bucle, el récord es el número de oleadas.',
-    'Nach jeder Welle wählst du eines von drei <b>Implantaten</b>: sie leben genau einen Lauf. Nach dem Tod bleiben die Credits — gib sie für <b>Firmware</b> aus, permanente Verbesserungen, die den Tod überleben. Der erste Sieg öffnet <b>Endlos</b>: die Akte kreisen, der Rekord ist die Wellenzahl.',
-    'Après chaque vague, choisissez un des trois <b>implants</b> : ils vivent exactement une course. À la mort, les crédits restent — dépensez-les en <b>firmware</b>, améliorations permanentes qui survivent à la mort. La première victoire ouvre l’<b>infini</b> : les actes tournent en boucle, le record est le nombre de vagues.',
-    'ウェーブごとに三つの<b>インプラント</b>から一つを選ぶ。効果はそのラン限り。死んでもクレジットは残る——死を越えて残る恒久強化<b>ファームウェア</b>に注ぎ込め。初勝利で<b>エンドレス</b>解放。アクトは循環し、記録はウェーブ数だ。'],
-  ['<b>Сид дня</b> — забег на общем для всех сиде: волны у всех одинаковые. <b>Прошивка</b> (постоянные улучшения из магазина) на этот забег отключена — доска сравнивает руки, а не кошельки; обычные импланты после волн работают как всегда. Попыток сколько угодно — на доску дня идёт лучший результат. <b>Сид месяца</b> — то же самое, но бесконечный забег на общем сиде всего календарного месяца; рекорд — волны.',
-    'La <b>semilla del día</b> — una carrera con semilla común para todos: las oleadas son idénticas. El <b>firmware</b> (mejoras permanentes de la tienda) queda apagado en esta carrera — la tabla compara manos, no carteras; los implantes normales tras las oleadas funcionan como siempre. Intentos ilimitados — a la tabla va tu mejor resultado del día. La <b>semilla del mes</b> es el mismo contrato: una carrera infinita con semilla común para todo el mes natural; el récord son oleadas.',
-    'Der <b>Tages-Seed</b> — ein Lauf auf einem für alle gemeinsamen Seed: die Wellen sind identisch. <b>Firmware</b> (die permanenten Verbesserungen aus dem Laden) ist für diesen Lauf aus — die Liste vergleicht Hände, nicht Geldbeutel; gewöhnliche Implantate nach den Wellen wirken wie immer. Versuche unbegrenzt — auf die Liste kommt dein Tagesbestwert. Der <b>Monats-Seed</b> ist derselbe Vertrag: ein Endlos-Lauf auf einem gemeinsamen Seed des Kalendermonats; der Rekord sind Wellen.',
-    'La <b>graine du jour</b> — une course sur une graine commune à tous : les vagues sont identiques. Le <b>firmware</b> (les améliorations permanentes de la boutique) est coupé pour cette course — le classement compare les mains, pas les portefeuilles ; les implants ordinaires après les vagues marchent comme toujours. Essais illimités — au classement va votre meilleur du jour. La <b>graine du mois</b> est le même contrat : une course infinie sur une graine commune du mois civil ; le record, ce sont les vagues.',
-    '<b>デイリーシード</b>は全員共通のシードで走るランだ。ウェーブは誰でも同一。<b>ファームウェア</b>（ショップの恒久強化）はこのランでは停止——ランキングが比べるのは腕であって財布ではない。ウェーブ後の通常インプラントはいつも通り。挑戦は無制限、その日のベストが記録される。<b>マンスリーシード</b>も同じ契約——暦月ごとの共通シードで走るエンドレスラン。記録はウェーブ数。'],
+  ['После каждой волны — выбор одного из трёх <b>имплантов</b>: они живут ровно один забег. После смерти кредиты остаются — трать их на <b>улучшения</b> — постоянные, которые переживают смерть. Первая победа открывает <b>бесконечность</b>: акты идут по кругу, рекорд — число волн.',
+    'Tras cada oleada eliges uno de tres <b>implantes</b>: viven exactamente una carrera. Al morir, los créditos quedan — gástalos en <b>mejoras</b> permanentes que sobreviven a la muerte. La primera victoria abre el <b>infinito</b>: los actos giran en bucle, el récord es el número de oleadas.',
+    'Nach jeder Welle wählst du eines von drei <b>Implantaten</b>: sie leben genau einen Lauf. Nach dem Tod bleiben die Credits — gib sie für <b>Upgrades</b> aus, permanente Verbesserungen, die den Tod überleben. Der erste Sieg öffnet <b>Endlos</b>: die Akte kreisen, der Rekord ist die Wellenzahl.',
+    'Après chaque vague, choisissez un des trois <b>implants</b> : ils vivent exactement une course. À la mort, les crédits restent — dépensez-les en <b>améliorations</b> permanentes qui survivent à la mort. La première victoire ouvre l’<b>infini</b> : les actes tournent en boucle, le record est le nombre de vagues.',
+    'ウェーブごとに三つの<b>インプラント</b>から一つを選ぶ。効果はそのラン限り。死んでもクレジットは残る——死を越えて残る恒久強化<b>アップグレード</b>に注ぎ込め。初勝利で<b>エンドレス</b>解放。アクトは循環し、記録はウェーブ数だ。'],
+  ['<b>Сид дня</b> — забег на общем для всех сиде: волны у всех одинаковые. <b>Улучшения</b> (постоянные, из магазина) на этот забег отключены — доска сравнивает руки, а не кошельки; обычные импланты после волн работают как всегда. Попыток сколько угодно — на доску дня идёт лучший результат. <b>Сид месяца</b> — то же самое, но бесконечный забег на общем сиде всего календарного месяца; рекорд — волны.',
+    'La <b>semilla del día</b> — una carrera con semilla común para todos: las oleadas son idénticas. Las <b>mejoras</b> permanentes de la tienda quedan apagadas en esta carrera — la tabla compara manos, no carteras; los implantes normales tras las oleadas funcionan como siempre. Intentos ilimitados — a la tabla va tu mejor resultado del día. La <b>semilla del mes</b> es el mismo contrato: una carrera infinita con semilla común para todo el mes natural; el récord son oleadas.',
+    'Der <b>Tages-Seed</b> — ein Lauf auf einem für alle gemeinsamen Seed: die Wellen sind identisch. <b>Upgrades</b> (die permanenten Verbesserungen aus dem Laden) sind für diesen Lauf aus — die Liste vergleicht Hände, nicht Geldbeutel; gewöhnliche Implantate nach den Wellen wirken wie immer. Versuche unbegrenzt — auf die Liste kommt dein Tagesbestwert. Der <b>Monats-Seed</b> ist derselbe Vertrag: ein Endlos-Lauf auf einem gemeinsamen Seed des Kalendermonats; der Rekord sind Wellen.',
+    'La <b>graine du jour</b> — une course sur une graine commune à tous : les vagues sont identiques. Les <b>améliorations</b> permanentes de la boutique sont coupées pour cette course — le classement compare les mains, pas les portefeuilles ; les implants ordinaires après les vagues marchent comme toujours. Essais illimités — au classement va votre meilleur du jour. La <b>graine du mois</b> est le même contrat : une course infinie sur une graine commune du mois civil ; le record, ce sont les vagues.',
+    '<b>デイリーシード</b>は全員共通のシードで走るランだ。ウェーブは誰でも同一。<b>アップグレード</b>（ショップの恒久強化）はこのランでは停止——ランキングが比べるのは腕であって財布ではない。ウェーブ後の通常インプラントはいつも通り。挑戦は無制限、その日のベストが記録される。<b>マンスリーシード</b>も同じ契約——暦月ごとの共通シードで走るエンドレスラン。記録はウェーブ数。'],
   ['<b>Esc</b> — пауза. На паузе показывают разбор текущей обстановки: правило мутатора волны, а во время боя со стражем — как именно его убивать.',
     '<b>Esc</b> — pausa. En pausa se muestra el análisis de la situación: la regla del mutador de la oleada, y durante el combate con un guardián — cómo matarlo exactamente.',
     '<b>Esc</b> — Pause. In der Pause gibt es die Lagebesprechung: die Mutator-Regel der Welle, und im Kampf mit einem Wächter — wie genau er fällt.',
@@ -890,6 +908,14 @@ const ROWS = [
     'Auto senkt die Qualität von selbst, wenn die Bildrate einbricht',
     'auto baisse la qualité de lui-même quand le framerate chute',
     '自動はフレームが落ちると品質を自ら下げます'],
+  ['СПОКОЙНЫЙ РЕЖИМ', 'MODO TRANQUILO', 'RUHEMODUS', 'MODE CALME', '演出控えめ'],
+  ['ВКЛ', 'SÍ', 'AN', 'OUI', 'オン'],
+  ['ВЫКЛ', 'NO', 'AUS', 'NON', 'オフ'],
+  ['без тряски камеры, вспышек и зерна; авто слушает системное «меньше движения»',
+    'sin sacudidas de cámara, destellos ni grano; auto sigue el ajuste del sistema «reducir movimiento»',
+    'ohne Kamerawackeln, Blitze und Korn; Auto folgt der Systemeinstellung „Bewegung reduzieren“',
+    'sans secousses de caméra, flashs ni grain ; auto suit le réglage système « réduire les animations »',
+    '画面の揺れ・フラッシュ・粒子を止めます。自動はシステムの「視差効果を減らす」に従います'],
 ];
 
 const packs = {};

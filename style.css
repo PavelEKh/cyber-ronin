@@ -90,6 +90,15 @@ body::after {
 }
 .stance-chip .dots { display: none; gap: 3px; margin-left: 2px; }
 .stance-chip.on .dots { display: flex; }
+/* A grammar the run has not been handed yet: present, named, and plainly shut.
+   The keypad digit goes dark — nothing to press — and the tooltip says which
+   act opens it. */
+.stance-chip.locked {
+  opacity: 0.42;
+  border-style: dashed;
+  cursor: default;
+}
+.stance-chip.locked .key { opacity: 0.25; }
 .stance-chip .dots i {
   width: 7px; height: 7px; border-radius: 50%;
   background: currentColor; box-shadow: 0 0 5px currentColor;
@@ -242,7 +251,7 @@ body::after {
 #hud-mut-icon { font-size: 14px; letter-spacing: 0; }
 @keyframes mut-pulse { 50% { opacity: 0.62; } }
 
-/* Firmware from the other way: on the shelf, visibly out of reach, and saying
+/* An upgrade from the other way: on the shelf, visibly out of reach, and saying
    why. Hiding it would keep the line a secret from the player it is for. */
 .shop-row.off-way { opacity: 0.5; }
 .shop-row.off-way .icon { filter: grayscale(1); }
@@ -265,6 +274,12 @@ body::after {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  /* Takes the column's width without ever setting it. The roads below decide how
+     wide the menu is; this row and the hint under it only report the choice, and
+     their text changes with it — left to contribute, they made every button in
+     the menu jump 46px wider the moment the way was switched. */
+  width: 0;
+  min-width: 100%;
   height: 36px;
   padding: 0 14px;
   margin-bottom: 4px;
@@ -298,11 +313,15 @@ body::after {
   line-height: 1.4;
   color: var(--dim);
   text-align: center;
+  width: 0;            /* same rule as .way-row: report the way, never size the menu */
+  min-width: 100%;
 }
 #way-hint.stance { color: var(--gold); opacity: 0.85; }
 
-/* Everything that is not a road: icons, because the eye finds a shape faster
-   than it reads a seventh label. */
+/* Everything that is not a road. The glyph still leads — the eye finds a shape
+   faster than it reads a label — but the label is under it now: six unlabelled
+   squares read as ornament, and the upgrades shelf and the boards were being
+   walked past. */
 #menu-icons {
   display: flex;
   gap: 8px;
@@ -311,23 +330,45 @@ body::after {
   justify-content: center;
 }
 .icon-btn {
-  width: 46px; height: 42px;
-  font-size: 19px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 66px; padding: 7px 8px 6px;
   line-height: 1;
   color: var(--text);
-  background: rgba(10, 8, 24, 0.6);
-  border: 1px solid rgba(108, 122, 156, 0.3);
+  background: rgba(12, 10, 30, 0.78);
+  border: 1px solid rgba(108, 122, 156, 0.55);
   border-radius: 5px;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s, background 0.15s;
+}
+.icon-btn .ico { font-size: 19px; line-height: 1; }
+.icon-btn .cap {
+  font-size: 8px;
+  letter-spacing: 1.2px;
+  opacity: 0.72;
+  white-space: nowrap;
 }
 .icon-btn:hover, .icon-btn.pad-focus {
   border-color: var(--cyan);
+  background: rgba(18, 26, 52, 0.85);
   box-shadow: 0 0 12px -3px var(--cyan);
   transform: translateY(-1px);
 }
+.icon-btn:hover .cap, .icon-btn.pad-focus .cap { opacity: 1; }
+/* Something on the shelf is affordable right now — the same gold the credits
+   are counted in, so the eye connects the two without being told. */
+.icon-btn.has-offer {
+  border-color: rgba(255, 180, 45, 0.75);
+  box-shadow: 0 0 12px -4px var(--gold);
+}
+.icon-btn.has-offer .cap { color: var(--gold); opacity: 0.95; }
 @media (max-width: 560px) {
-  .icon-btn { width: 40px; height: 38px; font-size: 17px; }
+  .icon-btn { min-width: 58px; padding: 6px 6px 5px; }
+  .icon-btn .ico { font-size: 17px; }
+  .icon-btn .cap { font-size: 7px; letter-spacing: 0.8px; }
   .way-btn { padding: 6px 11px; font-size: 11px; letter-spacing: 2px; }
 }
 
@@ -768,7 +809,17 @@ button.pad-focus, input.pad-focus {
   font-size: 13px;
   text-align: left;
 }
-.board-title { color: var(--gold); letter-spacing: 2px; font-size: 12px; margin-bottom: 6px; }
+.board-title { color: var(--gold); letter-spacing: 2px; font-size: 12px; margin-bottom: 2px; }
+/* Whose road this ledger belongs to — said, not hinted. Cyan for the plain way,
+   the Wardens' gold for the harder one, matching the way row in the menu. */
+.board-way {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  opacity: 0.8;
+  margin-bottom: 6px;
+}
+.board-way.stance { color: var(--gold); }
 .board-row {
   display: grid;
   grid-template-columns: 22px 1fr auto auto 22px;
@@ -931,9 +982,15 @@ button.pad-focus, input.pad-focus {
   color: var(--text);
   font-size: 13px;
 }
-#gfx-tabs { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+#gfx-tabs, #calm-tabs { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
 /* the base .cyber-btn min-width would stack the four tiers one per line */
-#gfx-tabs .cyber-btn.mini { min-width: 0; flex: 1 1 auto; }
+#gfx-tabs .cyber-btn.mini, #calm-tabs .cyber-btn.mini { min-width: 0; flex: 1 1 auto; }
+
+/* Calm mode: the two purely decorative CSS strobes go still. Signal blinks
+   (last armor pip, charged execute) stay — they carry information, and their
+   area is a chip, not the frame. */
+body.calm #combo-num.glitch { animation: none; }
+body.calm #game-title { animation: none; }
 #set-list .hint { text-align: left; padding-left: 104px; }
 
 /* the sliders, in the same neon dialect as the buttons */

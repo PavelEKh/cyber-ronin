@@ -99,17 +99,20 @@
       <button id="btn-monthly" class="cyber-btn" data-i18n="btnMonthly">🌙 СИД МЕСЯЦА</button>
       <button id="btn-endless" class="cyber-btn" data-i18n="btnEndless">♾ БЕСКОНЕЧНОСТЬ</button>
     </div>
-    <!-- everything that is not a road: one row of icons, names on hover and
-         under the gamepad cursor -->
+    <!-- Everything that is not a road. It used to be six bare glyphs with their
+         names in the tooltip only — and a row of identical dark squares reads
+         as decoration: the two that carry progress, the upgrades shelf and the
+         boards, were the ones being missed. Each now says its name out loud;
+         the caption is filled by applyLang from the same string as the title. -->
     <div id="menu-icons">
-      <button id="btn-shop" class="icon-btn" data-i18n-title="btnShop">💾</button>
-      <button id="btn-ach" class="icon-btn" data-i18n-title="btnAch">🏆</button>
-      <button id="btn-log" class="icon-btn" data-i18n-title="btnLog">📓</button>
-      <button id="btn-board" class="icon-btn" data-i18n-title="btnBoard">🏅</button>
-      <button id="btn-help" class="icon-btn" data-i18n-title="btnHelp">❔</button>
-      <button id="btn-settings" class="icon-btn" data-i18n-title="btnSettings">⚙</button>
+      <button id="btn-shop" class="icon-btn" data-i18n-title="btnShop"><span class="ico">🔩</span><span class="cap"></span></button>
+      <button id="btn-ach" class="icon-btn" data-i18n-title="btnAch"><span class="ico">🏆</span><span class="cap"></span></button>
+      <button id="btn-log" class="icon-btn" data-i18n-title="btnLog"><span class="ico">📓</span><span class="cap"></span></button>
+      <button id="btn-board" class="icon-btn" data-i18n-title="btnBoard"><span class="ico">🏅</span><span class="cap"></span></button>
+      <button id="btn-help" class="icon-btn" data-i18n-title="btnHelp"><span class="ico">❔</span><span class="cap"></span></button>
+      <button id="btn-settings" class="icon-btn" data-i18n-title="btnSettings"><span class="ico">⚙</span><span class="cap"></span></button>
       <!-- desktop shell only: unhidden when the Electron wrapper sets CR_SHELL -->
-      <button id="btn-exit" class="icon-btn hidden" data-i18n-title="btnExit">🚪</button>
+      <button id="btn-exit" class="icon-btn hidden" data-i18n-title="btnExit"><span class="ico">🚪</span><span class="cap"></span></button>
     </div>
     <!-- The champion's frame: the daily seed's №1 — watch the tape, take the
          crown. Filled by Board.champ(); hidden while the online piece is off
@@ -120,21 +123,15 @@
     <!-- "<sim epoch>.<cosmetic>" — the first number is the replay era -->
     <div id="game-version"></div>
     <!-- tucked into the corner: language is chosen once and then forgotten -->
-    <select id="lang-select" title="Language">
-      <option value="ru">Русский</option>
-      <option value="en">English</option>
-      <option value="es">Español</option>
-      <option value="de">Deutsch</option>
-      <option value="fr">Français</option>
-      <option value="ja">日本語</option>
-    </select>
+    <!-- options come from LANGS in lang.js — the one language roster -->
+    <select id="lang-select" title="Language"></select>
   </div>
 
   <div id="screen-choice" class="screen hidden">
     <div class="screen-title" id="choice-title">ВОЛНА ЗАЧИЩЕНА</div>
     <div class="screen-sub" data-i18n="choiceSub">выбери имплант</div>
     <div id="choice-cards"></div>
-    <!-- Reassembly firmware: reroll the standing offers; hidden without charges -->
+    <!-- Reassembly upgrade: reroll the standing offers; hidden without charges -->
     <button id="btn-reroll" class="cyber-btn mini hidden"></button>
     <div class="hint" data-i18n="choiceHint">цифры или клик</div>
   </div>
@@ -151,7 +148,7 @@
     <div class="menu-buttons">
       <button id="btn-retry" class="cyber-btn primary" data-i18n="btnRetry">⟳ ЕЩЁ ЗАБЕГ</button>
       <button id="btn-replay-dead" class="cyber-btn hidden" data-i18n="btnReplay">▶ РЕПЛЕЙ</button>
-      <button id="btn-dead-shop" class="cyber-btn" data-i18n="btnShop">💾 ПРОШИВКА</button>
+      <button id="btn-dead-shop" class="cyber-btn" data-i18n="btnShop">🔩 УЛУЧШЕНИЯ</button>
       <button id="btn-dead-menu" class="cyber-btn" data-i18n="btnMenu">МЕНЮ</button>
     </div>
   </div>
@@ -169,7 +166,7 @@
   </div>
 
   <div id="screen-shop" class="screen hidden">
-    <div class="screen-title" data-i18n="shopTitle">ПРОШИВКА</div>
+    <div class="screen-title" data-i18n="shopTitle">УЛУЧШЕНИЯ</div>
     <div class="screen-sub" data-i18n="shopSub">постоянные улучшения серии — переживают смерть экземпляра</div>
     <div id="shop-credits"></div>
     <div id="shop-list"></div>
@@ -183,15 +180,9 @@
 
   <div id="screen-help" class="screen hidden">
     <div class="screen-title" data-i18n="helpTitle">КАК ИГРАТЬ</div>
-    <div id="help-body">
-      <p><b>← A</b> — удар влево · <b>D →</b> — удар вправо · клик по половине экрана тоже бьёт.</p>
-      <p>Бей врага, только когда он <b>в зоне досягаемости</b> (метки на земле). Удар по воздуху — короткий <b>стан</b>, сброс комбо, и пока ты висишь, <b>толпа ускоряется</b>.</p>
-      <p><b>Дрон</b> умирает с одного удара. <b>Панк</b> после удара перелетает на другую сторону — добей там. <b>Щитовик</b> держит три удара. <b>Метатель</b> кидает сюрикен — отбей его обратно.</p>
-      <p>Элита ломает ритм: <b>фехтовальщик</b> парирует — жди зелёного окна; <b>адаптант</b> блокирует чередование — бей дважды с одной стороны; <b>близнецы</b> умирают только от одновременного удара обеих кнопок.</p>
-      <p>В конце акта выходит <b>Страж</b>: ударь его в зоне и повтори последовательность стрелок в темпе. Ошибка или промедление — минус броня, и он зайдёт снова.</p>
-      <p>После каждой волны — выбор одного из трёх <b>имплантов</b>. После смерти кредиты остаются — трать их на <b>прошивку</b>.</p>
-      <p><b>Esc</b> — пауза. На паузе показывают разбор текущей обстановки: правило мутатора волны, а во время боя со стражем — как именно его убивать.</p>
-    </div>
+    <!-- filled by applyLang() from HELP_PARAGRAPHS (main.js) on the first
+         frame — a second copy of the text here would only be a second truth -->
+    <div id="help-body"></div>
     <div class="menu-buttons"><button id="btn-help-back" class="cyber-btn" data-i18n="btnBack">НАЗАД</button></div>
   </div>
 
@@ -218,6 +209,15 @@
         </div>
       </div>
       <div class="hint" data-i18n="setGfxHint">авто само снижает качество, если кадры проседают</div>
+      <div class="set-row">
+        <span class="set-label" data-i18n="setCalm">СПОКОЙНЫЙ РЕЖИМ</span>
+        <div id="calm-tabs">
+          <button data-calm="auto" class="cyber-btn mini" data-i18n="gfxAuto">АВТО</button>
+          <button data-calm="on" class="cyber-btn mini" data-i18n="calmOn">ВКЛ</button>
+          <button data-calm="off" class="cyber-btn mini" data-i18n="calmOff">ВЫКЛ</button>
+        </div>
+      </div>
+      <div class="hint" data-i18n="setCalmHint">без тряски камеры, вспышек и зерна; авто слушает системное «меньше движения»</div>
     </div>
     <div class="menu-buttons"><button id="btn-set-back" class="cyber-btn" data-i18n="btnBack">НАЗАД</button></div>
   </div>
