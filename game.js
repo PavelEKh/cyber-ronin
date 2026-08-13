@@ -103,7 +103,9 @@ const STEP = 1 / 60;
 // rejected loudly instead. Bumping the epoch retires stored replays (board
 // ROWS survive). The full version shows in the menu corner.
 const VERSION_MAJOR = 1;
-const VERSION_REPLAY = 5; // 1.5: the arc's follow-through is forgiven — a press into the side a sweep just cleared is not a whiff
+const VERSION_REPLAY = 6; // 1.6: the pool trades its dead pair (stasis, intercept) + the road learns its weather — unreleased, one epoch until it ships
+                          // (1.6: the pool trades its dead pair — the Stasis Discharge freezes the struck zone, the Intercept re-aims deflected steel)
+                          // (1.5: the arc's follow-through is forgiven — a press into the side a sweep just cleared is not a whiff)
                           // (1.4: stances — the two buttons keep their sides and change what a press means)
                           // (1.3: an execute on a twin takes the pair, and the chord charges the execute counter)
                           // (1.2: the combo multiplier caps at ×3.5 — score favors depth over one unbroken tail)
@@ -149,20 +151,38 @@ const BASE_STUN = 0.65;   // seconds of penalty for swinging at air
 // 1.18 chosen off sim.js: it costs a skilled player nothing and a mid player
 // ~16% of run length. The surge is a pure accuracy filter — raising it further
 // punishes only the players who already miss most.
+// And a filter belongs on a road that has already taught the zone: act I is a
+// primer here like everywhere else (stances arrive with act II, mutators with
+// act II, seals with IV), so the crowd only learns to smell blood from the
+// second act on. The novice's death spiral was miss → stun → surge → wound,
+// repeated until quit — the career sim priced act I at 45+ of 60 novice
+// deaths. In the primer a miss still stuns; it just no longer feeds the wave.
 const MISS_SURGE = 1.18;
+const SURGE_ACT = 2;
+// The teach: the first few times the crowd actually rushes, the UI names it —
+// the speed streaks alone read as noise until the rule is said out loud.
+const TEACH_SURGE = 2;
 const BASE_HP = 3;
 const WAVES_PER_ACT = 3;
-const EXEC_EVERY = 8;     // with Protocol EXECUTE, every Nth hit is a one-shot
-                          // (was 10: forced-pick sim won 6/120 vs 9/120 baseline — below the floor)
-// Arc Discharge period: every Nth combo hit bolts a beyond-reach enemy;
-// the second stack shortens it. Was 8/5 — the sim's deadest implant at 1/120
-// forced-pick wins against a 9/120 baseline; 6/4 aims for the middle band.
-const CHAIN_EVERY1 = 6;
-const CHAIN_EVERY2 = 5; // 4 was measured too rich: with charges from deflections
-                        // the full deep-endless kit nearly doubled bot depth
-const EXEC_GRACE = 0.35;  // sec: a miss right after an execute on the same side is forgiven —
-                          // the execute stole the target the press was already committed to
-// The same forgiveness for the arc, and for the same reason. SWEEP takes every
+// Stasis Discharge: every Nth CONNECTED press arms the blade, and the armed
+// strike freezes every other walker on the struck SIDE — the whole column
+// stands still while the hand works the other one. The reach was the strike
+// zone at first, and the implant read as a no-op: in the game's actual rhythm
+// the zone is empty (bodies die on entry, the kill's rollback shoves the
+// next one out), so the discharge kept firing into nothing. The side is the
+// honest unit — that is what the eye tracks and what the freeze must answer.
+// One exception, for the hand's sake: a body whose walk would carry it into
+// the zone before the hold expires keeps marching (see hitEnemy) — freezing
+// it would bait the press already committed to its arrival into a whiff.
+// The charge is monotonic (a miss does not advance it, but never wipes it):
+// its predecessor, the Arc Discharge, charged with success and reset in
+// trouble, which made it absent exactly when it was needed — and its bolt
+// killed BEYOND the zone, buying future time while runs died in the present.
+const STASIS_EVERY1 = 6;
+const STASIS_EVERY2 = 5;   // the second stack arms faster and holds longer
+const STASIS_HOLD1 = 0.8;  // sec a discharged side stands still
+const STASIS_HOLD2 = 1.2;
+// The forgiveness for the arc. SWEEP takes every
 // body in reach on its side in one motion — which is the point — and the hand
 // that was already swinging for the second of them finds an empty street. The
 // press was aimed at a body the previous press had legally removed, so counting
@@ -397,10 +417,76 @@ const ACT_WEIGHTS = [
   { drone: 6, punk: 2 },                                             // street: the basics
   { drone: 5, punk: 3.5, shield: 1, mimic: 1.5 },                    // market: crowds and first fakes
   { drone: 5, punk: 3, shield: 1.5, fencer: 0.8, thrower: 0.8 },     // maglev: first stances and steel
-  { drone: 4, punk: 3, shield: 2, thrower: 2.2, fencer: 1, twin: 0.8, mimic: 1 }, // ship: thrower country
+  // ship: thrower country — and the pendulum's first swing: the ship completes
+  // the stance vocabulary, and the heavy crosser used to arrive only in act V,
+  // where most careers never met the body the design had already paid for
+  { drone: 4, punk: 3, shield: 2, thrower: 2.2, fencer: 1, adapt: 0.6, twin: 0.8, mimic: 1 },
   { drone: 4, punk: 3, shield: 2, thrower: 1.5, fencer: 1, adapt: 1, twin: 0.8, mimic: 2 },
   { drone: 3, punk: 3, shield: 2.5, thrower: 2.5, fencer: 1.2, adapt: 1.5, twin: 1, mimic: 2.5 },
 ];
+// Deep endless: past the summit the road grows QUESTIONS, not speed. Every
+// elite asks a distinct input — the window, the chord, the read, the deflect,
+// the heavy finish — so their share is the axis of depth that has no
+// physiological wall. The weights drift linearly from the act-VI table to
+// this one across DEEP_DRIFT_ACTS acts, then hold: light infantry thins to a
+// breather share (~23%), the fencer barely grows (his duel stalls the column
+// — see the no-repeat rule in buildWave) and twins stay modest (a pair
+// demands both hands, and stacked pairs at the arrival floor would jam).
+const DEEP_WEIGHTS = { drone: 2, punk: 2.5, shield: 3.2, thrower: 3.2, fencer: 1.4, adapt: 2.6, twin: 1.1, mimic: 3.6 };
+const DEEP_DRIFT_ACTS = 6; // acts VII..XII walk act VI's table into DEEP_WEIGHTS
+function waveWeights(r) {
+  const last = ACT_WEIGHTS[ACTS.length - 1];
+  if (r.act <= ACTS.length) return ACT_WEIGHTS[r.act - 1];
+  const k = Math.min(1, (r.act - ACTS.length) / DEEP_DRIFT_ACTS);
+  const w = {};
+  for (const t in DEEP_WEIGHTS) w[t] = (last[t] || 0) * (1 - k) + DEEP_WEIGHTS[t] * k;
+  return w;
+}
+// The seal keeps pace with the deep road (stance way only): a run that has
+// carried all three grammars for six acts can be asked more often. Both caps
+// are gentle — the seal stays a demand, never a wall.
+const sealChance = act => Math.min(0.4, SEAL_CHANCE + Math.max(0, act - ACTS.length) * 0.03);
+const sealPerWave = act => SEAL_PER_WAVE + Math.min(2, Math.floor(Math.max(0, act - ACTS.length) / 3));
+
+// ---------- Road rules ----------
+// One light mechanical rule per location — the setting's promise made real.
+// Same fairness frame as the Maglev Warden's own wind: every event is
+// telegraphed (ROAD_WARN of howl/creak/static before it bites), and the
+// strike zone is untouchable — a road rule may move the APPROACH, never the
+// answer. In endless the locations cycle, so the rules return with them.
+// The Warden's arrival clears the weather: his duel owns the road.
+//   train  — WIND: a gust carries every walker beyond the zone toward the
+//            rim (both columns: the slipstream buffets the whole roof) and
+//            dies at the rim rather than crossing it.
+//   ship   — ROLL: the deck tilts; the downhill column slides closer (to the
+//            rim at most), the uphill one slides away. Asymmetric pressure,
+//            answered by re-reading side priority. Planted bodies (a stanced
+//            fencer, a winding thrower), frozen bodies and intact twin pairs
+//            hold the deck — the pair-sync would tax a slid pair otherwise.
+//   server — GLITCH: the hall's light stutters; for a beat the background
+//            falls dark and every BODY beyond GLITCH_DIST sinks behind the
+//            fog-style curtains (not a bare unrender — the dark must be SEEN
+//            taking them). A UI veil, logic untouched — the FOG mutator's
+//            exact contract — and steel is never veiled: the vetted
+//            fog+steel rejection stands for the road too.
+const ROAD_RULES = { train: 'wind', ship: 'roll', server: 'glitch' };
+const roadRule = act => ROAD_RULES[ACTS[(act - 1) % ACTS.length].id] || null;
+const ROAD_WARN = 0.5;   // sec of telegraph before any road event bites
+const ROAD_NEAR = 460;   // an event fires only with a walker this close: under
+                         // the empty-road warp the telegraph would flash past
+const WIND_TIME = 0.4, WIND_MULT = 2.2;     // gust: length and approach multiplier
+const ROLL_TIME = 0.5, ROLL_DIST = 55;      // tilt: length and slide distance
+const GLITCH_TIME = 1.3, GLITCH_DIST = 300; // stutter: length and veil radius
+const ROAD_CONF = { // seconds between events: base + rnd share
+  wind:   { every: 7, rnd: 3, time: WIND_TIME },
+  roll:   { every: 8, rnd: 4, time: ROLL_TIME },
+  glitch: { every: 6, rnd: 3, time: GLITCH_TIME },
+};
+// The UI veil radius while the server hall's light is out (0 = lights on).
+function roadVeil(r) {
+  return r && r.road && r.road.kind === 'glitch' && !r.road.warn && r.road.t > 0
+    ? GLITCH_DIST : 0;
+}
 
 // ---------- Wave mutators ----------
 // A named rule that twists one wave. Rolled from act 2, never on the Warden's
@@ -472,7 +558,7 @@ const mutSpeed = r => (mutHas(r, 'blitz') ? BLITZ_SPEED : 1);
 // Live speed factor from a miss. Deliberately NOT part of wave generation: the
 // schedule is planned once at base speed, so the generator's solvability
 // guarantee (minimum arrival gaps) is never rewritten by the player's mistake.
-const surgeMult = r => (r.stun > 0 ? MISS_SURGE : 1);
+const surgeMult = r => (r.stun > 0 && r.act >= SURGE_ACT ? MISS_SURGE : 1);
 
 // ---------- Implants (within a run) ----------
 const IMPLANTS = [
@@ -484,12 +570,12 @@ const IMPLANTS = [
     en: { name: 'Shield Battery',   desc: '+1 max armor, instant repair' } },
   { id: 'vamp',    icon: '🩸', name: 'Нановампиризм',     desc: '+1 броня за половину врагов волны (раз за волну)', stack: 1,
     en: { name: 'Nanovampirism',    desc: '+1 armor for half the wave (once per wave)' } },
-  { id: 'chain',   icon: '⚡', name: 'Дуговой разряд',    desc: `Каждый ${CHAIN_EVERY1}-й удар комбо бьёт молнией врага вне зоны удара`, stack: 2,
-    en: { name: 'Arc Discharge',    desc: `Every ${CHAIN_EVERY1}th combo hit bolts an enemy beyond reach` } },
+  { id: 'stasis',  icon: '❄️', name: 'Стазис-разряд',     desc: `Каждое ${STASIS_EVERY1}-е меткое нажатие замораживает сторону удара — кроме уже подходящих к клинку`, stack: 2,
+    en: { name: 'Stasis Discharge', desc: `Every ${STASIS_EVERY1}th connected press freezes the struck side — bodies already closing on the blade keep coming` } },
   { id: 'reflex',  icon: '🎯', name: 'Рефлекс-чип',       desc: 'Штраф за промах вдвое короче',                stack: 2,
     en: { name: 'Reflex Chip',      desc: 'Miss penalty is half as long' } },
-  { id: 'berserk', icon: '💀', name: 'Протокол «Казнь»',  desc: `Каждый ${EXEC_EVERY}-й удар убивает любого врага`, stack: 1,
-    en: { name: 'Protocol EXECUTE', desc: `Every ${EXEC_EVERY}th hit kills any enemy` } },
+  { id: 'icept',   icon: '🪃', name: 'Перехват',          desc: 'Отбитый сюрикен перенаводится в самую опасную цель своей стороны — и убивает её', stack: 1,
+    en: { name: 'Intercept',        desc: 'A deflected shuriken retargets the most dangerous body on its side — and kills it' } },
   // 2026-07-31: the Credit Magnet (+30% credits) is retired — a passive number
   // that merely duplicated the shop's mcred firmware. Its slot in the pool is
   // deliberately left open until a trigger mechanic worth pressing arrives.
@@ -528,8 +614,8 @@ const ACHIEVEMENTS = [
     en: { name: 'Resonance', desc: '10 twin pairs by chord' } },
   { id: 'fenc15',    icon: '🤺', name: 'Дуэлянт',        desc: '15 фехтовальщиков — в окно',    target: 15,    reward: 60,  value: s => s.meta.stats.fencerKills,
     en: { name: 'Duelist', desc: '15 fencers — in the window' } },
-  { id: 'exec30',    icon: '⚡', name: 'Палач',          desc: '30 врагов казнено',             target: 30,    reward: 60,  value: s => s.meta.stats.execKills,
-    en: { name: 'Executioner', desc: '30 enemies executed' } },
+  { id: 'icept15',   icon: '🪃', name: 'Перехватчик',    desc: '15 целей снято перенаведённым клинком', target: 15, reward: 60,  value: s => s.meta.stats.iceptKills,
+    en: { name: 'Interceptor', desc: '15 bodies down to a retargeted blade' } },
   { id: 'perfect1',  icon: '✨', name: 'Без царапины',   desc: 'Волна без единой раны',         target: 1,     reward: 20,  value: s => s.meta.stats.perfectWaves,
     en: { name: 'Untouched', desc: 'A wave without a wound' } },
   { id: 'perfect20', icon: '💎', name: 'Неприкасаемый',  desc: '20 идеальных волн',             target: 20,    reward: 100, value: s => s.meta.stats.perfectWaves,
@@ -716,7 +802,7 @@ function createState(seed = 1) {
       ach: {},      // achievement id -> true (unlocked forever)
       stats: {
         runs: 0, bestAct: 0, bestScore: 0, bestCombo: 0, totalKills: 0, wins: 0,
-        reflects: 0, chords: 0, glitchHits: 0, bossKills: 0, fencerKills: 0, execKills: 0, perfectWaves: 0,
+        reflects: 0, chords: 0, glitchHits: 0, bossKills: 0, fencerKills: 0, iceptKills: 0, perfectWaves: 0, surges: 0,
         stanceSwitches: 0, sealKills: 0,
         mimicReads: 0, bestEndless: 0,
       },
@@ -808,8 +894,9 @@ function cryoMult(s)   { return Math.pow(0.92, implantCount(s, 'cryo')); }
 function stunTime(s)   { return BASE_STUN * Math.pow(0.5, implantCount(s, 'reflex')) * (1 - 0.15 * metaLvl(s, 'mstun')); }
 function maxHp(s)      { return BASE_HP + metaLvl(s, 'mhp') + implantCount(s, 'hp'); }
 function creditMult(s) { return 1 + 0.15 * metaLvl(s, 'mcred'); }
-function chainEvery(s) { const c = implantCount(s, 'chain'); return c ? (c >= 2 ? CHAIN_EVERY2 : CHAIN_EVERY1) : 0; }
-function berserkOn(s)  { return implantCount(s, 'berserk') > 0; }
+function stasisEvery(s) { const c = implantCount(s, 'stasis'); return c ? (c >= 2 ? STASIS_EVERY2 : STASIS_EVERY1) : 0; }
+function stasisHold(s)  { return implantCount(s, 'stasis') >= 2 ? STASIS_HOLD2 : STASIS_HOLD1; }
+function iceptOn(s)     { return implantCount(s, 'icept') > 0; }
 function qteTimerMult(s) { return 1 + HACK_TIMER * implantCount(s, 'hack'); }
 function jamWindupMult(s) { return 1 + JAM_WINDUP * implantCount(s, 'jam'); }
 function jamProjMult(s)  { return 1 - JAM_PROJ * implantCount(s, 'jam'); }
@@ -879,7 +966,28 @@ function recordMonthly(s, r) {
 }
 
 // ---------- Difficulty ----------
-function speedMult(run)  { return 1 + (run.act - 1) * 0.22 + (run.wave - 1) * 0.07; }
+// The knee: past it, extra speed arrives at 15% of the raw slope. Depth used
+// to grow along ONE axis — crossing speed — while every other pressure ring
+// (arrival gaps, wave size, chain length) sat at its floor, so an endless
+// run ended exactly when the in-zone window shrank below the player's
+// reaction: a wall of physiology, not of reading. The knee sits just above
+// the campaign's own maximum (act VI wave 3 = ×2.24 — the campaign never
+// feels it), keeps every absolute window (the fencer's, the mimic's flash)
+// in sane proportion to the world, and leaves a slow residual climb so an
+// endless run still ENDS — records stay finite and comparable. Depth's real
+// growth moves to composition: see DEEP_WEIGHTS.
+const SPEED_KNEE = 2.3;
+function speedMult(run) {
+  const raw = 1 + (run.act - 1) * 0.22 + (run.wave - 1) * 0.07;
+  return raw <= SPEED_KNEE ? raw : SPEED_KNEE + (raw - SPEED_KNEE) * 0.15;
+}
+// Pincer chance grew unclamped and crossed 1.0 at act IX: every slot rolled
+// "simultaneous pair", and the deep wave degenerated into a metronome of
+// L+R stabs at the arrival floor — no bursts, no breathers, no reading. The
+// cap is the campaign's own maximum (act VI), so the ragged choreography
+// survives to any depth and the campaign keeps its exact old plans.
+const PAIR_CAP = 0.68;
+const pairChance = act => Math.min(PAIR_CAP, 0.08 + (act - 1) * 0.12);
 function waveSize(run)   { return Math.min(40, 10 + (run.act - 1) * 7 + (run.wave - 1) * 4); }
 function spawnGap(run)   { return Math.max(0.34, 1.05 - (run.act - 1) * 0.16 - (run.wave - 1) * 0.06); }
 
@@ -907,8 +1015,8 @@ function startRun(s, mode) {
     hp: 0, // set below once run exists (maxHp reads implants from run)
     combo: 0, bestCombo: 0, kills: 0, score: 0, credits: 0,
     implants: {},   // implant id -> times taken
-    execHits: 0,    // Protocol EXECUTE hit counter (not reset by misses)
-    chainCombo: 0,  // hits toward the Arc Discharge bolt: accumulate after install, reset with the combo
+    stasisHits: 0,  // connected presses toward the Stasis Discharge — monotonic,
+                    // a miss stalls the charge but never wipes it (see STASIS_EVERY1)
     lastStrikeSide: 0, // side of the previous press — kept for mechanics that read press order
     stance: 'blade',   // the hand's current grammar (see STANCES)
     stanceCd: 0,       // sec until the stance may change again
@@ -992,14 +1100,16 @@ function buildWave(s) {
     r.mutator = pool[Math.floor(rndPlan(r) * pool.length)].id;
   }
   r.rainT = 2.4; // STEEL RAIN: countdown to the first stray shuriken
+  r.road = null;        // road weather never crosses a wave border
+  r.roadT = undefined;  // the wave's first event re-rolls its own delay
   const sm = speedMult(r) * cryoMult(s) * mutSpeed(r);
   const zone = range(s);
   const minGap = sideArrGap(r.act);
   // pincer chance — simultaneous arrival from both sides — grows with acts
-  const pairChance = 0.08 + (r.act - 1) * 0.12;
+  const pairCh = pairChance(r.act);
   const anyGap = anyArrGap(r.act);
   let size = waveSize(r);
-  let weights = ACT_WEIGHTS[Math.min(ACTS.length, r.act) - 1];
+  let weights = waveWeights(r); // campaign tables, drifting deep past the summit
   let gapMul = 1;
   if (mutHas(r, 'squall')) {
     // squall: many light enemies, packed tighter
@@ -1013,6 +1123,16 @@ function buildWave(s) {
   let arr = 0; // arrival timeline; the whole wave is shifted to a normal start at the end
   let side = rndPlan(r) < 0.5 ? -1 : 1;
   let sinceLull = 0; // enemies since the last breather
+  // The fencer is the road's slowest question — his duel holds his column
+  // while guard and window play out, and fencers stacked close stall the
+  // whole street. The spacing is counted in TIME, not slots: a slot cooldown
+  // leaked through pincers, which compress several slots into one instant.
+  // A new fencer may only be drawn once the arrival cursor has moved a full
+  // window cycle past the previous fencer's arrival — however many pincer
+  // partners and twins landed in between. The draw count is unchanged, so
+  // the plan stream stays aligned.
+  const fenSpace = FENCER_GUARD + FENCER_OPEN;
+  let lastFenArr = -Infinity;
   r.waveTotal = size; // actual wave size (mutators change it) — the nanovampirism threshold
   for (let i = 0; i < size; i++) {
     // ragged rhythm: every 5–8 enemies — a breather pause, the crowd comes in bursts
@@ -1020,7 +1140,12 @@ function buildWave(s) {
       arr += spawnGap(r) * 2.2 * gapMul;
       sinceLull = 0;
     }
-    let type = weightedPick(s, weights);
+    let pool = weights;
+    if (weights.fencer && arr < lastFenArr + fenSpace) {
+      pool = { ...weights };
+      delete pool.fencer;
+    }
+    let type = weightedPick(s, pool);
     if (type === 'twin') {
       // twins come as a mirrored pair on both sides simultaneously (2 slots)
       if (i >= size - 1) type = 'drone'; // not enough room for a pair
@@ -1039,7 +1164,11 @@ function buildWave(s) {
       }
     }
     let thisSide, thisArr;
-    if (i > 0 && q.length && rndPlan(r) < pairChance) {
+    // the fencer never arrives as a pincer partner: the pair shares the
+    // PREVIOUS pick's arrival time, which would drop his duel behind the
+    // spacing rule above — and a duel opening simultaneously with another
+    // body is exactly the stall the rule exists to prevent
+    if (i > 0 && q.length && type !== 'fencer' && rndPlan(r) < pairCh) {
       // pincers: same arrival, opposite side — a deliberate test
       const prev = q[q.length - 1];
       thisSide = -prev.side;
@@ -1063,17 +1192,18 @@ function buildWave(s) {
     // a mimic rolls real-or-phantom at planning time; hidden until it nears the zone
     const phantom = type === 'mimic' && rndPlan(r) < MIMIC_PHANTOM;
     q.push({ at: thisArr - travel, arr: thisArr, type, side: thisSide, dist, phantom });
+    if (type === 'fencer') lastFenArr = thisArr;
   }
   // Seals go on in a second pass, after the crowd is choreographed: the rolls
   // sit at the tail of the planning stream, so a seed keeps the wave it always
   // had and only gains marks. Only the rank and file can be sealed, only once
   // the whole vocabulary is in hand, and never more than a couple a wave.
   if (r.act >= SEAL_ACT) {
-    let left = SEAL_PER_WAVE;
+    let left = sealPerWave(r.act); // the deep road may ask more (stance way)
     for (const e of q) {
       if (left <= 0) break;
       if (!SEALABLE.includes(e.type)) continue;
-      if (rndPlan(r) >= SEAL_CHANCE) continue;
+      if (rndPlan(r) >= sealChance(r.act)) continue;
       e.seal = Math.floor(rndPlan(r) * STANCES.length) % STANCES.length;
       left--;
     }
@@ -1114,6 +1244,7 @@ function tick(s, dt) {
 
   spawnFromQueue(r, ev);
   stepSteelRain(s, ev, dt, sm);
+  stepRoad(s, ev, dt, rg);
   expireTwinWindow(s, ev);
   stepWalkers(s, ev, dt, rg, sm);
   resolveFormation(r);
@@ -1164,6 +1295,59 @@ function stepSteelRain(s, ev, dt, sm) {
   }
 }
 
+// Road weather: schedule, telegraph and play the location's rule. Consumes
+// the combat rnd stream (period jitter, the roll's tilt side) at a fixed
+// pipeline position — reordering would reshuffle every seeded run.
+function stepRoad(s, ev, dt, rg) {
+  const r = s.run;
+  const rule = roadRule(r.act);
+  // the Warden's approach owns the road — weather clears and stays cleared
+  if (!rule || r.boss) { r.road = null; return; }
+  const rd = r.road;
+  if (rd) {
+    if (rd.warn > 0) {
+      rd.warn = Math.max(0, rd.warn - dt);
+      if (rd.warn === 0) ev.push({ type: 'road', kind: rd.kind, dir: rd.dir });
+      return;
+    }
+    // the roll slides the deck while it lasts; the wind rides the walkers'
+    // own step (stepWalkers), the glitch is a pure UI veil (roadVeil)
+    if (rd.kind === 'roll') {
+      const shift = (ROLL_DIST / ROLL_TIME) * Math.min(dt, rd.t);
+      const twinAlive = {};
+      for (const o of r.enemies) {
+        if (!o.dead && o.type === 'twin') twinAlive[o.pair] = (twinAlive[o.pair] || 0) + 1;
+      }
+      for (const o of r.enemies) {
+        if (o.dead || o.kind === 'proj' || o.dist <= rg) continue;
+        if (o.fstate || (o.windup !== undefined && !o.thrown)) continue;
+        if (o.hold > 0) continue; // frozen is frozen — the stasis promise holds
+        if (o.type === 'twin' && twinAlive[o.pair] === 2) continue;
+        o.dist = o.side === rd.dir
+          ? Math.max(rg, o.dist - shift)
+          : Math.min(SPAWN_DIST, o.dist + shift);
+      }
+    }
+    rd.t -= dt;
+    if (rd.t <= 0) r.road = null;
+    return;
+  }
+  if (r.roadT === undefined) r.roadT = 3 + rnd(s) * 2; // the wave's first event
+  r.roadT -= dt;
+  if (r.roadT > 0) return;
+  // fire only with someone actually approaching: under the empty-road warp
+  // the telegraph would compress into a blink and read as nothing at all
+  if (!r.enemies.some(o => !o.dead && o.kind !== 'proj' && o.dist > rg && o.dist < ROAD_NEAR)) {
+    r.roadT = 0.25; // retry as soon as the road is peopled again
+    return;
+  }
+  const conf = ROAD_CONF[rule];
+  const dir = rule === 'roll' ? (rnd(s) < 0.5 ? -1 : 1) : 0;
+  r.road = { kind: rule, dir, warn: ROAD_WARN, t: conf.time };
+  r.roadT = conf.every + rnd(s) * conf.rnd;
+  ev.push({ type: 'roadWarn', kind: rule, dir });
+}
+
 function expireTwinWindow(s, ev) {
   const r = s.run;
   // The twin chord window expired. The pair used to be shoved back 90 units here,
@@ -1189,7 +1373,6 @@ function expireTwinWindow(s, ev) {
     if (alive >= 2) {
       r.stun = stunTime(s);
       r.combo = 0;
-      r.chainCombo = 0;
       r.misses++; // the lone press was never a strike — it resolves as a miss
       ev.push({ type: 'twinKnock', side });
     }
@@ -1262,6 +1445,26 @@ function stepWalkers(s, ev, dt, rg, sm) {
           ev.push({ type: 'bossBurn', side: e.side, dist: bBoss.dist, burn: bBoss.burn });
           continue;
         }
+        // An intercepted blade flies THROUGH the crowd to its mark — the
+        // re-aim would mean nothing if the first body crossed still ate it —
+        // and the mark DIES. The implant aims at the most dangerous body on
+        // the side, and a single point of chip damage skidding off a plate
+        // read as a dud: the whole payoff of the deflect is decisiveness,
+        // the way a thrower's own return has always killed its owner. A mark
+        // that died mid-flight is forgotten and the blade falls back to the
+        // plain one-bite rules of ownerless steel.
+        if (e.icept !== undefined) {
+          const mark = r.enemies.find(o => o.id === e.icept && !o.dead);
+          if (!mark || mark.side !== e.side) e.icept = undefined;
+          else if (e.dist >= mark.dist) {
+            e.dead = true;
+            s.meta.stats.iceptKills = (s.meta.stats.iceptKills || 0) + 1;
+            const healed = killEnemy(s, mark);
+            ev.push({ type: 'reflectKill', side: e.side, dist: mark.dist, enemy: mark.type, icept: true });
+            if (healed) ev.push({ type: 'vamp' });
+            continue;
+          } else continue; // still flying to the mark
+        }
         const owner = r.enemies.find(o => o.id === e.owner && !o.dead);
         if (owner && owner.side === e.side && e.dist >= owner.dist) {
           const healed = killEnemy(s, owner);
@@ -1271,7 +1474,7 @@ function stepWalkers(s, ev, dt, rg, sm) {
         } else if (!owner && !e.fromBoss) {
           // Ownerless steel — the rain's, or the thrower died before his blade
           // came home — is not spent: it bites the first solid walker it
-          // crosses. Eligibility is the chain bolt's rule (auto-steel must not
+          // crosses. Eligibility is the intercept's rule (auto-steel must not
           // cheat a mechanic): a guarded stance and twins are off-limits, a
           // hologram is not solid. One bite: a kill or one hit, blade spent.
           const prev = e.dist - e.projSpeed * dt; // where this tick's flight began
@@ -1311,13 +1514,19 @@ function stepWalkers(s, ev, dt, rg, sm) {
       if (s.phase !== 'combat') break; // a fencer lunge can end the run
       continue;
     }
-    e.dist -= t.speed * (e.thrown ? 0.6 : 1) * sm * dt;
+    let step = t.speed * (e.thrown ? 0.6 : 1) * sm * dt;
+    // the road wind carries the approach — up to the rim, never past it, and
+    // never slower than the honest walk (a body at the rim just walks in)
+    if (r.road && r.road.kind === 'wind' && !r.road.warn && r.road.t > 0 && e.dist > rg) {
+      step = Math.min(step * WIND_MULT, Math.max(step, e.dist - rg));
+    }
+    e.dist -= step;
     if (e.dist <= HIT_DIST) {
       e.dead = true;
       if (t.mimic && e.phantom) {
         // Read correctly and left alone: a hologram passes through, no damage. A held
         // hand should feel as good as a landed hit, so it keeps the combo going (and
-        // pays a little score). The chain-bolt counter is left alone — that one tracks
+        // pays a little score). The stasis charge is left alone — that one tracks
         // actual strikes, and a read is the absence of one.
         bumpCombo(r);
         r.score += 12;
@@ -1437,7 +1646,6 @@ function hurt(s, ev, from, cause) {
   r.waveHurt = true;
   r.hp--;
   r.combo = 0;
-  r.chainCombo = 0;
   r.wounds.push({
     cause: cause || (from.kind === 'proj' ? 'proj' : from.type || 'boss'),
     act: r.act, wave: r.wave,
@@ -1562,7 +1770,6 @@ function chooseImplant(s, idx) {
   const id = r.offers[idx];
   r.implants[id] = (r.implants[id] || 0) + 1;
   if (id === 'hp') r.hp = Math.min(r.hp + 1, maxHp(s)); // the battery repairs immediately
-  if (id === 'chain') r.chainCombo = 0; // the bolt charges from zero — pre-existing combo does not count
   r.offers = null;
   advanceWave(s);
   s.phase = 'combat';
@@ -1615,7 +1822,7 @@ function applyDash(s, side, m) {
 
 // ---------- Strike ----------
 // side: -1 (left) | 1 (right). Returns a UI event:
-// idle | stunned | miss | reflect | kill | hit (+ nested `chained` from Arc Discharge).
+// idle | stunned | miss | reflect | kill | hit (+ `stasis` when the discharge fires).
 function genSeq(s, len) {
   const seq = [];
   for (let i = 0; i < len; i++) seq.push(rnd(s) < 0.5 ? -1 : 1);
@@ -1652,9 +1859,8 @@ function genGrams(s, r, seq) {
 // Both are dispatched by the enemy's OWN type (an enemy is exactly one type), so
 // there is no precedence to get wrong — the old strike() cascade only looked ordered
 // because the flags were mutually exclusive. drone/punk/shield have no entry: they
-// are the plain walk-and-hit baseline. An execute skips resolveStrike entirely (the
-// caller guards on execNext), and ctx carries only per-call state — the constants and
-// the mutators (hurt, killEnemy, …) are module scope.
+// are the plain walk-and-hit baseline. ctx carries only per-call state — the constants
+// and the mutators (hurt, killEnemy, …) are module scope.
 const ENEMY_BEHAVIOR = {
   // Fencer: a parry stance before the zone, a short green window, then a lunge.
   fencer: {
@@ -1695,7 +1901,6 @@ const ENEMY_BEHAVIOR = {
     resolveStrike({ s, r, side, enemy }) {
       if (enemy.fstate !== 'guard') return null;
       r.stun = stunTime(s);
-      r.chainCombo = 0;
       const dist = enemy.dist;
       const evs = [];
       // no `type` on the source: the fencer lives, and a typed source reads to the UI
@@ -1724,7 +1929,6 @@ const ENEMY_BEHAVIOR = {
       enemy.dead = true;
       r.stun = stunTime(s);
       r.combo = 0;
-      r.chainCombo = 0;
       r.misses++;
       return { type: 'phantomWhiff', side, dist: enemy.dist };
     },
@@ -1909,7 +2113,6 @@ const BOSS_BEHAVIOR = {
         b.ph.alive = false;
         r.stun = stunTime(s);
         r.combo = 0;
-        r.chainCombo = 0;
         r.misses++;
         return { type: 'bossPhantomMiss', side, dist: b.dist };
       }
@@ -1971,22 +2174,15 @@ function strike(s, side) {
 // canBuffer=false (a press may wait once, never re-queue) and the prevSide it
 // captured at press time, so the adapter's shield reads the true press order.
 // The chord's payout, shared by the twin resolver and the zone-wide double
-// tap in resolveCrowd: both twins fall for +2 combo, the streak charges, and
-// Protocol EXECUTE counts the two connected presses without ever swallowing
-// an armed charge — a pair that dies whole needs no free kill, so the
-// counter parks one short of the trigger instead of spending it.
+// tap in resolveCrowd: both twins fall for +2 combo, and the stasis charge
+// counts the two connected presses.
 function chordKill(s, side, a, b) {
   const r = s.run;
   r.twinPress = null;
   r.lastPress = null; // the gesture is spent — a third tap starts a new one
   s.meta.stats.chords++;
   bumpCombo(r, 2);
-  if (chainEvery(s)) r.chainCombo += 2;
-  if (berserkOn(s)) {
-    for (let k = 0; k < 2; k++) {
-      if ((r.execHits + 1) % EXEC_EVERY !== 0) r.execHits++;
-    }
-  }
+  if (stasisEvery(s)) r.stasisHits += 2;
   const dist = a.dist;
   // both die unconditionally — no short-circuit between the two kills
   const healedFirst = killEnemy(s, a);
@@ -2056,10 +2252,10 @@ function resolveQte(s, b, side, rg) {
     if (b.glitch && b.glitch[b.idx]) s.meta.stats.glitchHits++;
     b.idx++;
     bumpCombo(r);
-    // chain presses charge the bolt too — the implant keeps cycling through
-    // the duel and comes out of it ready (the bolt itself only fires on a
+    // chain presses charge the stasis too — the implant keeps cycling through
+    // the duel and comes out of it ready (the discharge itself only fires on a
     // regular hit: during the QTE every press belongs to the chain)
-    if (chainEvery(s)) r.chainCombo++;
+    if (stasisEvery(s)) r.stasisHits++;
     if (b.idx < b.seq.length) {
       // the Warden leaps to the SHOWN side; on a glitch link that is the wrong one
       b.side = qteShown(b, b.idx);
@@ -2127,7 +2323,7 @@ function resolveBossWalk(s, b, side, rg) {
     b.windup = 0;
     b.gustT = 0.8 + rnd(s) * 0.7;
     bumpCombo(r);
-    if (chainEvery(s)) r.chainCombo++; // the opening press counts like any chain press
+    if (stasisEvery(s)) r.stasisHits++; // the opening press counts like any chain press
     return { type: 'qteStart', side, idx: 1, len: b.seq.length, dist: b.dist,
              nextSide: b.side, nextGlitch: !!(b.glitch && b.glitch[1]),
              nextGram: b.gram ? b.gram[1] : undefined };
@@ -2136,7 +2332,7 @@ function resolveBossWalk(s, b, side, rg) {
 }
 
 // Everything a press can mean once no duel claims it: the deflecting arc, the
-// miss and the buffer, the zone-wide twin chord, the execute, the enemy types'
+// miss and the buffer, the zone-wide twin chord, the enemy types'
 // own resolvers, the sweep and the dash. LAST in strikeCore's priority by
 // definition — the crowd is what a press falls through to when nothing above
 // wanted it; any of these rules standing higher would let a walker steal a
@@ -2156,14 +2352,7 @@ function resolveCrowd(s, side, prevSide, prevPress, canBuffer, rg) {
   const projs = r.enemies.filter(e =>
     !e.dead && e.kind === 'proj' && !e.reflected && e.side === side && e.dist <= rg);
   if (!enemy && !projs.length) {
-    // EXECUTE just stole this press's target — forgive the miss (once).
-    // execSide 0 is the pair-execute: both hands were committed, either is forgiven.
-    if (r.execAt !== undefined && (r.execSide === side || r.execSide === 0) &&
-        r.time - r.execAt < EXEC_GRACE) {
-      r.execAt = undefined;
-      return { type: 'ghostMiss', side };
-    }
-    // ...and the arc that just cleared this side takes the follow-through with it
+    // the arc that just cleared this side takes the follow-through with it
     if (r.sweepAt !== undefined && r.sweepSide === side &&
         r.time - r.sweepAt < SWEEP_GRACE) {
       r.sweepAt = undefined;
@@ -2182,8 +2371,16 @@ function resolveCrowd(s, side, prevSide, prevPress, canBuffer, rg) {
   }
   for (const p of projs) {
     p.reflected = true;
+    // Intercept: the returned blade is re-aimed at the most dangerous body on
+    // its side instead of whoever happened to throw it. Never the Armorer's
+    // steel — his returns ARE the duel's burn economy, and stealing them
+    // would break a mechanic to feed another.
+    if (iceptOn(s) && !p.fromBoss) {
+      const mark = iceptPick(r, side, p.dist);
+      if (mark) p.icept = mark.id;
+    }
     bumpCombo(r);
-    if (chainEvery(s)) r.chainCombo++; // a deflection is a connected press — it charges the bolt
+    if (stasisEvery(s)) r.stasisHits++; // a deflection is a connected press — it charges the stasis
     r.score += 15;
     s.meta.stats.reflects++;
   }
@@ -2229,19 +2426,16 @@ function resolveCrowd(s, side, prevSide, prevPress, canBuffer, rg) {
     }
   }
 
-  // an execute pierces any defense — "kills any enemy" with no exceptions, so it
-  // skips the type's resolver and drops straight to the plain hit.
-  const execNext = berserkOn(s) && (r.execHits + 1) % EXEC_EVERY === 0;
   // A press that just deflected steel has already connected: the arc stops at
   // the steel instead of committing into a guarded blade or a hologram. Without
   // this, a shuriken flying past a fencer's closed stance was a trap with no
   // answer — deflect and eat the riposte, or hold and eat the shuriken. The
   // punishing resolutions (parry, whiff) survive only for a press with no
-  // legitimate victim; an execute still pierces the guard as always.
-  if (!execNext && projs.length && (enemy.fstate === 'guard' || enemy.phantom)) {
+  // legitimate victim.
+  if (projs.length && (enemy.fstate === 'guard' || enemy.phantom)) {
     return finish({ type: 'reflect', side, dist: projs[0].dist, combo: r.combo, count: projs.length });
   }
-  if (!execNext) {
+  {
     const b = ENEMY_BEHAVIOR[enemy.type];
     const res = b && b.resolveStrike && b.resolveStrike({ s, r, side, prevSide, enemy });
     if (res) return finish(res);
@@ -2264,25 +2458,6 @@ function resolveCrowd(s, side, prevSide, prevPress, canBuffer, rg) {
     }
   }
   const res = hitEnemy(s, enemy, side, false);
-  // An execute on a twin takes the PAIR: "kills any enemy" cannot leave half an
-  // enemy on the road. The old path killed one and left an orphan that broke
-  // the chord rule one-way — and when the execute landed on the second press
-  // of a chord, the chord silently never happened. The partner falls with its
-  // mirror (same +2 combo a chord pays), and the grace widens to either hand:
-  // a committed chord has both presses in flight when the first one turns out
-  // to be the execute, so the follow-up must not resolve as a whiff.
-  if (res.type === 'kill' && res.exec && enemy.type === 'twin') {
-    const partner = r.enemies.find(o =>
-      !o.dead && o !== enemy && o.type === 'twin' && o.pair === enemy.pair);
-    if (partner) {
-      bumpCombo(r);
-      if (chainEvery(s)) r.chainCombo++;
-      if (killEnemy(s, partner)) res.vamp = true;
-      res.pairFell = true;
-      r.execSide = 0; // 0 = either side's next press is forgiven (see EXEC_GRACE)
-      if (r.twinPress && r.twinPress.pair === enemy.pair) r.twinPress = null;
-    }
-  }
   // The wide arc. Everything else of the crowd standing in reach on this side
   // takes the same swing — but the arc pays ONE link of combo for the whole
   // motion (the extras go in quiet), so sweeping is crowd control bought with
@@ -2344,8 +2519,10 @@ function flubMiss(s, side) {
   const r = s.run;
   r.stun = stunTime(s);
   r.combo = 0;
-  r.chainCombo = 0;
   r.misses++;
+  // the surge's teach counter: the UI names the rushing crowd while this is
+  // low (see TEACH_SURGE), then the words retire for good
+  if (r.act >= SURGE_ACT) s.meta.stats.surges = (s.meta.stats.surges || 0) + 1;
   return { type: 'miss', side };
 }
 
@@ -2364,8 +2541,8 @@ function bumpCombo(r, n = 1) {
 const comboMult = c => Math.min(1 + Math.floor(c / 10) * 0.5, 3.5);
 
 // Nearest living walker in a column, skipping one enemy and an optional extra
-// filter — the crowd scans (chain bolt, kill rollback, strike target) all share
-// this shape.
+// filter — the crowd scans (intercept aim, kill rollback, strike target) all
+// share this shape.
 function nearestWalker(r, side, skip, extra) {
   /** @type {?} */ let best = null;
   for (const o of r.enemies) {
@@ -2376,23 +2553,32 @@ function nearestWalker(r, side, skip, extra) {
   return best;
 }
 
+// Intercept's aim: the most dangerous body on the side, past the blade's own
+// position (the return flies outward and cannot bite behind itself). The
+// priority is the retired Arc Discharge's brain, kept because it was right:
+// a thrower mid-windup (the shuriken never flies), then a fencer (the stance
+// never starts), then the plain nearest. Eligibility mirrors ownerless steel:
+// a guarded stance and twins are off-limits, a hologram is not solid.
+function iceptPick(r, side, minD) {
+  const ok = o => o.dist > minD && o.fstate !== 'guard' && !ENEMY_TYPES[o.type].twin && !o.phantom;
+  return nearestWalker(r, side, null, o => ok(o) && !o.thrown && o.windup !== undefined) ||
+         nearestWalker(r, side, null, o => ok(o) && ENEMY_TYPES[o.type].fencer) ||
+         nearestWalker(r, side, null, ok);
+}
+
 function hitEnemy(s, e, side, isChain, quiet) {
   const r = s.run;
   // The stance gate. A body the current grammar cannot hurt still FEELS the
   // press — it is shoved back, the streak survives — but nothing else happens:
   // the wrong stance costs tempo and ground, never the run. Automatic effects
-  // (the chain bolt, ownerless steel, the fencer bonus) pass through it: they
-  // are not presses and must not surprise.
-  // ...but an armed EXECUTE goes through anything, the stance included: the
-  // protocol promises a kill on every Nth hit, and a charge spent skidding off
-  // a plate would be a promise broken on a technicality.
-  const execArmed = berserkOn(s) && (r.execHits + 1) % EXEC_EVERY === 0;
+  // (intercepted steel, ownerless steel, the fencer bonus) pass through it:
+  // they are not presses and must not surprise.
   // Blade Momentum: loyalty to one grammar charges the hand, and the charged
   // press bites anything — the reward for NOT switching, against a road that
   // keeps asking you to.
   const momEvery = MOMENTUM_EVERY[metaLvl(s, 'mmomentum')] || 0;
   const surge = !isChain && momEvery > 0 && stancesOn(r) && (r.sameStance + 1) % momEvery === 0;
-  if (!isChain && !execArmed && !surge && stancesOn(r) && !bodyBites(e, r.stance)) {
+  if (!isChain && !surge && stancesOn(r) && !bodyBites(e, r.stance)) {
     e.dist = Math.min(SPAWN_DIST, e.dist + PUSHBACK);
     // Riposte: the wrong grammar stops being a lost beat and becomes a tool —
     // the body it skidded off stands frozen while you deal with the other side.
@@ -2403,32 +2589,48 @@ function hitEnemy(s, e, side, isChain, quiet) {
   if (!isChain && stancesOn(r)) r.sameStance++;
   if (!quiet) {
     bumpCombo(r);
-    if (chainEvery(s)) r.chainCombo++;
+    if (stasisEvery(s)) r.stasisHits++;
   }
-  let exec = false;
-  if (berserkOn(s)) {
-    r.execHits++;
-    exec = r.execHits % EXEC_EVERY === 0;
+  // Stasis Discharge: the armed press freezes every OTHER walker on the
+  // struck SIDE — the strike's own victim already answered the press, the
+  // rest of the column stands still while the hand works the other one. Only
+  // a real press discharges (never the sweep's quiet extras, never automatic
+  // steel), so the freeze lands exactly where the player aimed the charge.
+  // Steel never freezes: a shuriken in flight stays answerable by the same
+  // rules as always. And the freeze must never BAIT the hand: a body already
+  // on approach — one whose walk would carry it into the zone before the
+  // hold expires — keeps marching, or the press committed to its arrival
+  // would whiff into a street the implant itself emptied and pay the combo
+  // for it. The freeze takes the column BEHIND the beat: bodies in the zone
+  // (already under the blade) and everything too deep to arrive during the
+  // hold. Targets are taken HERE, before the blow resolves; the holds go on
+  // after it, so the freeze pins bodies where the swing left them. A held
+  // twin holds its mirror through the pair-sync, a held fencer's stance
+  // clock stops with him.
+  const se = stasisEvery(s);
+  let stasisTargets = null;
+  if (se && !isChain && !quiet && r.stasisHits > 0 && r.stasisHits % se === 0) {
+    const rgS = range(s);
+    const holdS = stasisHold(s);
+    const smS = speedMult(r) * cryoMult(s) * mutSpeed(r);
+    stasisTargets = r.enemies.filter(o =>
+      !o.dead && o !== e && o.kind !== 'proj' && o.side === side &&
+      (o.dist <= rgS ||
+       o.dist > rgS + ENEMY_TYPES[o.type].speed * (o.thrown ? 0.6 : 1) * smS * holdS));
   }
   // the heavy thrust lands twice over; every other grammar cuts once
   const dmg = (!isChain && stancesOn(r) && r.stance === 'pierce' ? PIERCE_DMG : 1) + (surge ? 1 : 0);
-  e.hits = exec ? 0 : e.hits - dmg;
+  e.hits -= dmg;
   let res;
   if (e.hits <= 0) {
-    if (exec) s.meta.stats.execKills++;
     if (e.seal !== undefined) s.meta.stats.sealKills = (s.meta.stats.sealKills || 0) + 1;
     if (ENEMY_TYPES[e.type].fencer && e.fstate === 'open') s.meta.stats.fencerKills++;
     const healed = killEnemy(s, e);
-    if (exec) {
-      // grace window: the next press this way may have aimed at the executed enemy
-      r.execAt = r.time;
-      r.execSide = side;
-    }
-    res = { type: 'kill', side, enemy: e.type, dist: e.dist, combo: r.combo, chain: isChain, exec, surge };
+    res = { type: 'kill', side, enemy: e.type, dist: e.dist, combo: r.combo, chain: isChain, surge };
     if (healed) res.vamp = true;
   } else {
     if (ENEMY_TYPES[e.type].swap && !isChain) {
-      // the discharge bolt never swaps punks — auto-effects must not surprise
+      // an automatic hit never swaps punks — auto-effects must not surprise
       e.side = -e.side;
       e.dist = range(s) + KNOCK_EDGE_PAD + rnd(s) * KNOCK_SPREAD;
       // ...but the returning punk must not cut in front of a walking twin: the
@@ -2445,27 +2647,15 @@ function hitEnemy(s, e, side, isChain, quiet) {
     }
     res = { type: 'hit', side, enemy: e.type, dist: e.dist, combo: r.combo, chain: isChain, surge };
   }
-  // Arc Discharge: every Nth combo hit bolts the nearest same-side enemy
-  // BEYOND reach — everything inside the zone belongs to the player's presses,
-  // otherwise the bolt steals a committed press's target and gifts a miss.
-  const ce = chainEvery(s);
-  if (ce && !isChain && r.chainCombo > 0 && r.chainCombo % ce === 0) {
-    const rg = range(s);
-    // the bolt leaves protected enemies alone
-    const eligible = o => o.dist > rg && o.fstate !== 'guard' && !ENEMY_TYPES[o.type].twin;
-    // The bolt AIMS before it kills. A beyond-zone kill only saves future time,
-    // which is why the implant read as dead weight — so the bolt hunts the
-    // targets whose death changes the present: a thrower mid-windup (the
-    // shuriken never flies) or a fencer (the stance never starts). Only then
-    // the plain nearest.
-    const pick = sd =>
-      nearestWalker(r, sd, e, o => eligible(o) && !o.thrown && o.windup !== undefined) ||
-      nearestWalker(r, sd, e, o => eligible(o) && ENEMY_TYPES[o.type].fencer) ||
-      nearestWalker(r, sd, e, eligible);
-    // the bolt refuses to fizzle: if the attacked column is already empty, the
-    // charge crosses over instead of burning on nothing
-    const next = pick(side) || pick(-side);
-    if (next) res.chained = hitEnemy(s, next, side, true);
+  if (stasisTargets && stasisTargets.length) {
+    const hold = stasisHold(s);
+    let held = 0;
+    for (const o of stasisTargets) {
+      if (o.dead) continue;
+      o.hold = Math.max(o.hold || 0, hold);
+      held++;
+    }
+    if (held) res.stasis = { count: held, hold };
   }
   return res;
 }
@@ -2522,6 +2712,11 @@ function threatEta(s) {
       v = e.projSpeed;
     } else {
       v = ENEMY_TYPES[e.type].speed * sm;
+      // active road weather is a real speed-up — the warp must not mask it
+      if (r.road && !r.road.warn && r.road.t > 0 && e.dist > rg) {
+        if (r.road.kind === 'wind') v *= WIND_MULT;
+        else if (r.road.kind === 'roll' && e.side === r.road.dir) v += ROLL_DIST / ROLL_TIME;
+      }
     }
     const d = e.dist - rg;
     if (d <= 0) return 0;
@@ -2778,7 +2973,7 @@ const Game = {
   STEP, VERSION, VERSION_MAJOR, VERSION_REPLAY, VERSION_COSMETIC, REPLAY_EPOCH,
   replayState, replayFeed, runReplay, packRec, unpackRec,
   BASE_RANGE, HIT_DIST, SPAWN_DIST, BASE_STUN, BASE_HP, WAVES_PER_ACT,
-  EXEC_EVERY, EXEC_GRACE, CHAIN_EVERY1, CHAIN_EVERY2, KNOCK_EDGE_PAD, KNOCK_SPREAD, MERCY_DIST, FOLLOW_GAP, sideArrGap,
+  STASIS_EVERY1, STASIS_EVERY2, STASIS_HOLD1, STASIS_HOLD2, KNOCK_EDGE_PAD, KNOCK_SPREAD, MERCY_DIST, FOLLOW_GAP, sideArrGap,
   GUARD_REPEL, HACK_TIMER, JAM_WINDUP, JAM_PROJ,
   anyArrGap, KILL_PUSH, DASH_STOP, DASH_HIT, applyDash,
   THROW_WINDUP, projSpeedMult, FENCER_GUARD, FENCER_OPEN, CHORD_WIN,
@@ -2792,17 +2987,21 @@ const Game = {
   BOSS_KINDS, ARMORER_THROW_MIN, ARMORER_BURN_FLOOR, ARMORER_BURN_CAP,
   GUST_FLOOR, GUST_TELE, GUST_SQUEEZE, GUST_MIN_PRESS, GUST_ZONE_K,
   MUTATORS, MUTATOR_CHANCE, MUT_CREDIT, MUT_PAIR_CREDIT, MUT_PAIR_WAVE, FOG_DIST, RAIN_EVERY, BLITZ_SPEED, SQUALL_SIZE, mutSpeed, mutHas, mutCredit,
-  MISS_SURGE, surgeMult,
+  ROAD_RULES, roadRule, roadVeil, ROAD_WARN, ROAD_NEAR,
+  WIND_TIME, WIND_MULT, ROLL_TIME, ROLL_DIST, GLITCH_TIME, GLITCH_DIST,
+  MISS_SURGE, SURGE_ACT, TEACH_SURGE, surgeMult,
   endlessWave,
   dailySeed, startDaily, startMonthly,
   deathReport, causeName, REPORT_TIPS,
-  ACTS, ENEMY_TYPES, ACT_WEIGHTS, IMPLANTS, META, ACHIEVEMENTS, checkAchievements,
+  ACTS, ENEMY_TYPES, ACT_WEIGHTS, DEEP_WEIGHTS, DEEP_DRIFT_ACTS, waveWeights,
+  SPEED_KNEE, PAIR_CAP, pairChance, sealChance, sealPerWave,
+  IMPLANTS, META, ACHIEVEMENTS, checkAchievements,
   LOG, checkLog, BOSS_VOICE_AFTER,
   // state
   setLang, getLang, registerLang, L, T, F,
   createState, normalizeState, startRun, abandonRun, resetProgress,
   // derived
-  range, cryoMult, stunTime, maxHp, creditMult, comboMult, chainEvery, berserkOn, qteTimerMult, jamWindupMult, jamProjMult,
+  range, cryoMult, stunTime, maxHp, creditMult, comboMult, stasisEvery, stasisHold, iceptOn, qteTimerMult, jamWindupMult, jamProjMult,
   implantCount, metaLvl, speedMult, waveSize, spawnGap,
   // combat
   tick, strike, buildWave, chooseImplant, rollOffers, rerollOffers, threatEta, skipWave, taintRun,

@@ -818,16 +818,17 @@ function updateHud() {
       }
     }
   }
-  // execute counter: hits left until the guaranteed one-shot
-  const execKey = r.implants.berserk ? String(r.execHits % Game.EXEC_EVERY) : 'off';
+  // stasis counter: connected presses left until the zone-freezing discharge
+  const se = Game.stasisEvery(state);
+  const execKey = se ? `${r.stasisHits % se}/${se}` : 'off';
   if (execKey !== hudExec) {
     hudExec = execKey;
     const el = $('hud-exec');
     if (execKey === 'off') el.classList.add('hidden');
     else {
       el.classList.remove('hidden');
-      $('exec-count').textContent = `${execKey}/${Game.EXEC_EVERY}`;
-      el.classList.toggle('ready', Number(execKey) === Game.EXEC_EVERY - 1);
+      $('exec-count').textContent = execKey;
+      el.classList.toggle('ready', r.stasisHits % se === se - 1);
     }
   }
   // endless counts total waves; a skipped-wave run is marked as out of contention
@@ -1165,29 +1166,12 @@ function handleStrikeEvent(ev) {
   switch (ev.type) {
     case 'kill':
       Scene.slash(ev.side, true);
-      Scene.corpse(ev.side, ev.dist, ev.enemy, 1, ev.exec);
-      if (ev.pairFell) {
-        // the execute took the twin's mirror with it — the second corpse and
-        // burst land on the opposite side, same distance (pairs walk mirrored)
-        Scene.corpse(-ev.side, ev.dist, 'twin', 1, true);
-        Scene.burst(-ev.side, ev.dist, '#ffffff', 26);
-      }
-      if (ev.exec) {
-        // execute: a fatter burst, longer hitstop, its own tag
-        Scene.burst(ev.side, ev.dist, '#ffffff', 26);
-        Scene.floatText(L('КАЗНЬ', 'EXECUTED'), ev.side, ev.dist, '#ff2d4e');
-        Scene.flash('#ffffff', 0.1);
-        Scene.punch(0.03);
-        Sound.sfx('exec', 1, sidePan(ev.side, ev.dist), ev.enemy);
-        Pad.impact(1, 110);
-        hitstop = Math.max(hitstop, 0.09);
-      } else {
-        Scene.burst(ev.side, ev.dist, ev.chain ? '#baff4d' : '#ff5c9e');
-        Sound.sfx('kill', comboPitch(), sidePan(ev.side, ev.dist), ev.enemy);
-        comboNote(0.15);
-        Pad.impact(0.45, 55);
-        hitstop = Math.max(hitstop, 0.045);
-      }
+      Scene.corpse(ev.side, ev.dist, ev.enemy, 1);
+      Scene.burst(ev.side, ev.dist, ev.chain ? '#baff4d' : '#ff5c9e');
+      Sound.sfx('kill', comboPitch(), sidePan(ev.side, ev.dist), ev.enemy);
+      comboNote(0.15);
+      Pad.impact(0.45, 55);
+      hitstop = Math.max(hitstop, 0.045);
       if (ev.surge) Scene.floatText(L('ИНЕРЦИЯ', 'MOMENTUM'), ev.side, ev.dist + 45, '#bfefff');
       if (ev.vamp) {
         Scene.floatText(L('+БРОНЯ', '+ARMOR'), ev.side, 60, '#2dff8f');
@@ -1286,6 +1270,11 @@ function handleStrikeEvent(ev) {
     case 'miss':
       Scene.slash(ev.side, false);
       Scene.floatText(L('ПРОМАХ', 'MISS'), ev.side, 80, '#ff5c7a');
+      // the surge arrives with act II — name the rushing crowd the first few
+      // times it actually rushes, then let the streaks speak for themselves
+      if (Game.surgeMult(state.run) > 1 && (state.meta.stats.surges || 0) <= Game.TEACH_SURGE) {
+        Scene.floatText(L('ТОЛПА ЧУЕТ КРОВЬ', 'THE CROWD SMELLS BLOOD'), -ev.side, 200, '#ff5c7a');
+      }
       Sound.sfx('miss', 1, sidePan(ev.side, 120));
       Sound.duckMusic(); // the track drops out from under the failed swing
       Scene.shake(7);
@@ -1365,10 +1354,15 @@ function handleStrikeEvent(ev) {
     Scene.floatText(L('ОТБИТО!', 'DEFLECTED!'), ev.side, 110, '#26d6ff');
     Sound.sfx('reflect', comboPitch(), sidePan(ev.side, ev.dist));
   }
-  if (ev.chained) {
-    Scene.bolt(ev.side, Math.min(ev.dist, Game.range(state)), ev.chained.dist);
-    Sound.sfx('chain');
-    handleStrikeEvent(ev.chained);
+  // the armed press discharged: the struck side's zone flashes cold and stands still
+  if (ev.stasis) {
+    Scene.flash('#9fe8ff', 0.1);
+    Scene.floatText(L('СТАЗИС', 'STASIS'), ev.side, 130, '#9fe8ff');
+    for (const o of state.run.enemies) {
+      if (!o.dead && o.hold > 0) Scene.burst(o.side, o.dist, '#9fe8ff', 8);
+    }
+    Sound.sfx('stasis', 1, sidePan(ev.side, ev.dist));
+    Pad.impact(0.5, 70);
   }
   // the slash reached an open fencer behind the target
   if (ev.opened) {
@@ -1640,6 +1634,38 @@ function handleTickEvent(ev) {
       Scene.floatText(L('ВЕТЕР', 'WIND'), ev.side, 150, '#bfefff');
       Scene.shake(3);
       break;
+    case 'roadWarn':
+      // the road's weather telegraph — the same vocabulary the Maglev Warden
+      // taught: a howl before wind, a creak before the deck tilts, a crackle
+      // of static before the hall's light stutters
+      if (ev.kind === 'wind') {
+        Sound.sfx('gust', 1, 0);
+        Scene.floatText(L('ВЕТЕР', 'WIND'), 0, 220, '#bfefff');
+        Scene.shake(3);
+      } else if (ev.kind === 'roll') {
+        Sound.sfx('pendswing', 1, sidePan(ev.dir, 200));
+        Scene.floatText(L('КРЕН', 'TILT'), ev.dir, 220, '#ffd98a');
+        Scene.shake(2);
+      } else {
+        Sound.sfx('glance', 1, 0);
+        Scene.flash('#26d6ff', 0.06);
+      }
+      break;
+    case 'road':
+      if (ev.kind === 'wind') {
+        Scene.gust(-1, 380);
+        Scene.gust(1, 380);
+        Sound.sfx('gust', 1, 0);
+        Scene.shake(4);
+      } else if (ev.kind === 'roll') {
+        Scene.gust(ev.dir, 350); // streaks pour down the tilted side
+        Scene.shake(5);
+      } else {
+        // lights out: the veil itself is drawn by the scene (roadVeil)
+        Scene.flash('#0a1220', 0.12);
+        Sound.sfx('glance', 0.8, 0);
+      }
+      break;
     case 'bossGust':
       // Maglev Warden: the wind hurls him forward, or claws at the chain itself
       Scene.gust(ev.side, ev.dist);
@@ -1657,6 +1683,8 @@ function handleTickEvent(ev) {
     case 'reflectKill':
       Scene.burst(ev.side, ev.dist, '#26d6ff');
       Scene.corpse(ev.side, ev.dist, ev.enemy || 'thrower');
+      // the re-aimed blade names its work — the implant's payoff must be readable
+      if (ev.icept) Scene.floatText(L('ПЕРЕХВАТ', 'INTERCEPTED'), ev.side, ev.dist, '#26d6ff');
       Sound.sfx('kill', 1, sidePan(ev.side, ev.dist), ev.enemy || 'thrower');
       Pad.impact(0.4, 55);
       break;

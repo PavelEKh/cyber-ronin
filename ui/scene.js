@@ -3628,7 +3628,7 @@ const Scene = (() => {
 
   function heroHurt() { heroHurtT = fx.t; }
 
-  function drawHero(run, t, stunFrac, execReady, chainReady) {
+  function drawHero(run, t, stunFrac, stasisReady) {
     const st = ACT_STYLE[actId];
     const stunned = run && run.stun > 0;
     // stun indicator: a melting red arc under the hero — shows how long we hang
@@ -3695,10 +3695,9 @@ const Scene = (() => {
     // ---------- sprite hero (the pixel cyber ronin) ----------
     if (Sprites.ready()) {
       const scale = SPR;
-      // halo: colored by charged implants, blinks red while stunned
+      // halo: cold ice while the stasis is armed, blinks red while stunned
       const glow = stunned && Math.floor(t * 20) % 2 ? 'rgba(255,45,78,0.85)'
-        : execReady ? 'rgba(255,45,78,0.8)'
-        : chainReady ? 'rgba(186,255,77,0.8)'
+        : stasisReady ? 'rgba(159,232,255,0.85)'
         : 'rgba(38,214,255,0.55)';
       // The hero's frames are picked by DURATION, never by a tuned divisor.
       // Every re-bake so far has moved a frame count — idle 10 to 6, hurt 4 to
@@ -3735,8 +3734,8 @@ const Scene = (() => {
         ctx.restore();
       }
       if (Sprites.draw(ctx, 'hero', name, idx, hx, groundY, scale, face, glow)) {
-        // sparks of charged implants near the blade
-        if ((execReady || chainReady) && !reflectPass && Math.random() < 0.3) {
+        // frost motes off the blade while the stasis charge is armed
+        if (stasisReady && !reflectPass && Math.random() < 0.3) {
           fx.parts.push({
             kind: 'ember',
             x: hx + face * (14 + Math.random() * 14) * S,
@@ -3744,7 +3743,7 @@ const Scene = (() => {
             vx: (Math.random() - 0.5) * 20,
             vy: -30 - Math.random() * 40,
             life: 0.5 + Math.random() * 0.3,
-            age: 0, color: execReady ? '#ff5c6e' : '#baff4d',
+            age: 0, color: '#9fe8ff',
           });
         }
         return;
@@ -3787,22 +3786,19 @@ const Scene = (() => {
     // arms and katana
     const shoulderX = sway * 0.4 + lunge * 0.6, shoulderY = headY + 14 * s;
     ctx.beginPath();
-    // charged implants tint the blade: execute — red, discharge — acid
-    // (execute takes priority, but the discharge crackle shows either way)
+    // an armed stasis tints the blade cold ice
     const bladePulse = 0.5 + 0.5 * Math.sin(t * 11);
-    const bladeColor = execReady ? (bladePulse > 0.5 ? '#ff6577' : '#ffd6dc')
-      : chainReady ? (bladePulse > 0.5 ? '#baff4d' : '#eaffc4')
-      : st.accent2;
-    const bladeGlow = execReady ? '#ff2d4e' : chainReady ? '#baff4d' : (slashing ? '#ffffff' : st.accent2);
-    const bladeBlur = (execReady || chainReady) ? 20 + 8 * bladePulse : (slashing ? 18 : 12);
-    // electric crackle on the blade when the discharge bolt is armed
+    const bladeColor = stasisReady ? (bladePulse > 0.5 ? '#9fe8ff' : '#e8faff') : st.accent2;
+    const bladeGlow = stasisReady ? '#9fe8ff' : (slashing ? '#ffffff' : st.accent2);
+    const bladeBlur = stasisReady ? 20 + 8 * bladePulse : (slashing ? 18 : 12);
+    // frost crackle on the blade while the discharge is armed
     function bladeCrackle(x1, y1, x2, y2) {
-      if (!chainReady || Math.random() > 0.3) return;
+      if (!stasisReady || Math.random() > 0.3) return;
       const k = 0.2 + Math.random() * 0.7;
       const px = x1 + (x2 - x1) * k, py = y1 + (y2 - y1) * k;
       ctx.save();
-      ctx.strokeStyle = '#dfff9a';
-      ctx.shadowColor = '#baff4d';
+      ctx.strokeStyle = '#d8f6ff';
+      ctx.shadowColor = '#9fe8ff';
       ctx.shadowBlur = 8;
       ctx.lineWidth = 1.4 * s;
       ctx.globalAlpha = 0.9;
@@ -3850,8 +3846,8 @@ const Scene = (() => {
       tipY = groundY + hipY - 30 * s - sway;
     }
     ctx.restore();
-    // ember sparks off the charged blade
-    if (execReady && Math.random() < 0.35) {
+    // frost motes off the charged blade
+    if (stasisReady && Math.random() < 0.35) {
       fx.parts.push({
         kind: 'ember',
         x: tipX + (Math.random() - 0.5) * 8 * s,
@@ -3859,7 +3855,7 @@ const Scene = (() => {
         vx: (Math.random() - 0.5) * 20,
         vy: -30 - Math.random() * 40,
         life: 0.5 + Math.random() * 0.4,
-        age: 0, color: '#ff5c6e',
+        age: 0, color: '#9fe8ff',
       });
     }
   }
@@ -3921,11 +3917,20 @@ const Scene = (() => {
     const d = rdist(e); // interpolated draw distance — every visual below uses it
     // FOG mutator: everything beyond the veil is invisible — enemies materialize
     if (run && Game.mutHas(run, 'fog') && d > Game.FOG_DIST) return;
+    // the server hall's stuttering light: bodies beyond the veil go dark for a
+    // beat — steel never does, the loudest priority stays visible (the vetted
+    // fog+steel rejection stands for the road's own weather too)
+    if (run && e.kind !== 'proj') {
+      const veil = Game.roadVeil(run);
+      if (veil && d > veil) return;
+    }
     const st = ACT_STYLE[actId];
     let x = X(e.side, d);
     // Miss surge: while the hero hangs, the crowd rushes — speed streaks trail
     // behind every walker so the lost ground is seen, not just suffered.
-    if (run && run.stun > 0 && e.kind !== 'proj' && !e.dead) {
+    // surgeMult gates them: in act I the primer's crowd does not rush, and
+    // streaks over a calm walk would teach a rule that is not yet in force.
+    if (run && Game.surgeMult(run) > 1 && e.kind !== 'proj' && !e.dead) {
       const face = e.side > 0 ? -1 : 1; // they move toward the centre
       ctx.save();
       ctx.strokeStyle = '#ff5c7a';
@@ -3939,6 +3944,25 @@ const Scene = (() => {
         ctx.beginPath();
         ctx.moveTo(x - face * 12 * S, y);
         ctx.lineTo(x - face * (12 * S + len), y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    // A held body (stasis discharge, riposte) wears its stillness: ice spikes
+    // at the feet for as long as the hold lasts — "he is not walking" must
+    // read as a rule, not as a rendering hitch.
+    if (e.hold > 0 && e.kind !== 'proj' && !e.dead) {
+      ctx.save();
+      ctx.strokeStyle = '#9fe8ff';
+      ctx.shadowColor = '#9fe8ff';
+      ctx.shadowBlur = 8;
+      ctx.lineWidth = 1.6 * S;
+      ctx.globalAlpha = 0.55 + 0.25 * Math.sin(t * 9 + e.id);
+      const y0 = groundY - 2 * S;
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x + i * 10 * S, y0);
+        ctx.lineTo(x + (i * 10 + (i ? i * 3 : -2)) * S, y0 - (8 + Math.abs(i) * 4) * S);
         ctx.stroke();
       }
       ctx.restore();
@@ -4779,13 +4803,15 @@ const Scene = (() => {
     }
   }
 
-  // FOG mutator: dark curtains beyond the materialization edge on both sides
-  function drawFogVeil() {
+  // Dark curtains beyond a visibility edge on both sides. Two customers: the
+  // FOG mutator (its permanent veil at FOG_DIST) and the server hall's light
+  // stutter (a transient veil at GLITCH_DIST, faded by the envelope `a`).
+  function drawFogVeil(dist, a = 1) {
     const fade = 90 * unitPx;
-    const pulse = 0.78 + 0.06 * Math.sin(fx.t * 1.7);
+    const pulse = (0.78 + 0.06 * Math.sin(fx.t * 1.7)) * a;
     // anchored via zonePx like the range markers — no one-frame jump on a dash
-    const edgeR = cx + zonePx + Game.FOG_DIST * unitPx;
-    const edgeL = cx + zonePx - Game.FOG_DIST * unitPx;
+    const edgeR = cx + zonePx + dist * unitPx;
+    const edgeL = cx + zonePx - dist * unitPx;
     ctx.save();
     let g = ctx.createLinearGradient(edgeR - fade, 0, edgeR + fade, 0);
     g.addColorStop(0, 'rgba(8,8,20,0)');
@@ -4806,14 +4832,10 @@ const Scene = (() => {
   // slow-mo still stretches it and a hitstop still freezes it. Corpses live on
   // tr: an execution's send-off plays at full length even when the next threats
   // are far and the world has already jumped to 5.5×.
-  const fx = { t: 0, tr: 0, parts: [], slashes: [], texts: [], bolts: [], corpses: [], rings: [], shocks: [],
+  const fx = { t: 0, tr: 0, parts: [], slashes: [], texts: [], corpses: [], rings: [], shocks: [],
                shake: 0, kick: 0, punch: 0, flash: null };
   let lastWX = null; // previous worldX — for dash splashes
-
-  // The Arc Discharge bolt: a zigzag from the first target to the far one
-  function bolt(side, fromDist, toDist) {
-    fx.bolts.push({ side, fromDist, toDist, t0: fx.t });
-  }
+  let roadDimK = 0;  // server-hall lights-out envelope, 0..1 (see render)
 
   function slash(side, hit) {
     lastSlash = { side, t: fx.t };
@@ -4930,31 +4952,6 @@ const Scene = (() => {
       ctx.restore();
     }
     fx.rings = fx.rings.filter(rg => fx.t - rg.t0 < 0.5);
-
-    // discharge bolts
-    for (const b of fx.bolts) {
-      const age = fx.t - b.t0;
-      if (age > 0.22) continue;
-      const x1 = X(b.side, b.fromDist), x2 = X(b.side, b.toDist);
-      const y = groundY - 36 * S;
-      ctx.save();
-      ctx.strokeStyle = age < 0.08 ? '#ffffff' : '#baff4d';
-      ctx.globalAlpha = 1 - age / 0.22;
-      ctx.shadowColor = '#baff4d';
-      ctx.shadowBlur = 14;
-      ctx.lineWidth = 2.5 * S;
-      ctx.beginPath();
-      ctx.moveTo(x1, y);
-      const segs = 5;
-      for (let i = 1; i <= segs; i++) {
-        const xx = x1 + (x2 - x1) * (i / segs);
-        const yy = y + (i === segs ? 0 : (Math.random() - 0.5) * 26 * S);
-        ctx.lineTo(xx, yy);
-      }
-      ctx.stroke();
-      ctx.restore();
-    }
-    fx.bolts = fx.bolts.filter(b => fx.t - b.t0 <= 0.22);
 
     // particles
     for (const p of fx.parts) {
@@ -5173,6 +5170,19 @@ const Scene = (() => {
     const run = st8.run;
     const inCombat = st8.phase === 'combat' || st8.phase === 'choice';
 
+    // The server hall's light stutter: while roadVeil holds, the whole baked
+    // background falls dark under this overlay — painted before the fighters,
+    // so the road itself reads as unlit while the bodies still catch light.
+    // roadDimK is a UI-only envelope (fast cut, slightly softer recovery);
+    // the sim's binary veil is untouched.
+    const lightsOut = inCombat && run && Game.roadVeil(run) > 0;
+    roadDimK += ((lightsOut ? 1 : 0) - roadDimK) * (1 - Math.exp(-dt / (lightsOut ? 0.05 : 0.11)));
+    if (roadDimK < 0.005) roadDimK = 0;
+    if (roadDimK) {
+      ctx.fillStyle = `rgba(3, 6, 16, ${0.6 * roadDimK})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+
     // fighter reflections in the wet ground: flipped, squashed, dimmed
     reflectPass = true;
     ctx.save();
@@ -5277,7 +5287,10 @@ const Scene = (() => {
           ctx.restore();
         }
       }
-      if (Game.mutHas(run, 'fog')) drawFogVeil();
+      if (Game.mutHas(run, 'fog')) drawFogVeil(Game.FOG_DIST);
+      // the hall's stutter wears the same curtains at its own, closer edge —
+      // bodies stop popping out of nowhere: the dark visibly swallows them
+      if (roadDimK > 0.005) drawFogVeil(Game.GLITCH_DIST, roadDimK);
       if (run.boss) {
         const b = run.boss;
         const bx = X(b.side, rdist(b));
@@ -5325,11 +5338,9 @@ const Scene = (() => {
       if (st8.phase !== 'dead') heroDeath = null; // a new run/menu — the hero is back on his feet
       const stunFrac = inCombat && run && run.stun > 0
         ? Math.min(1, run.stun / Game.stunTime(st8)) : 0;
-      const execReady = !!(inCombat && run && run.implants.berserk &&
-        run.execHits % Game.EXEC_EVERY === Game.EXEC_EVERY - 1);
-      const ce = inCombat && run ? Game.chainEvery(st8) : 0;
-      const chainReady = !!(ce && (run.chainCombo + 1) % ce === 0);
-      drawHero(run, fx.t, stunFrac, execReady, chainReady);
+      const se = inCombat && run ? Game.stasisEvery(st8) : 0;
+      const stasisReady = !!(se && run.stasisHits % se === se - 1);
+      drawHero(run, fx.t, stunFrac, stasisReady);
     } else heroDeath = null; // back in the menu — the next run starts on his feet
     drawFx(dt);
     drawForeground(fx.t); // nearest plane: over the fighters and their effects
@@ -5393,7 +5404,7 @@ const Scene = (() => {
   initWeather();
   initTraffic();
 
-  return { render, setAct, setCinema, setWeather, slash, burst, floatText, phantomScatter, bolt, corpse, heroDie, heroHurt, shake, flash, punch, gust,
+  return { render, setAct, setCinema, setWeather, slash, burst, floatText, phantomScatter, corpse, heroDie, heroHurt, shake, flash, punch, gust,
            stanceFlash, enemyColor: eColor, STANCE_HUE,
     setPeril, glint, heroShock, setFx, getFx: () => fx0, setQuality, X: (side, dist) => X(side, dist) };
 })();

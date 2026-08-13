@@ -357,7 +357,12 @@ const Sound = (() => {
         tone('triangle', 1661, 1661, 1.2, 0.05, 0.6);
         tone('triangle', 2217, 2217, 1.0, 0.04, 0.75);
         break;
-      case 'chain':   tone('sawtooth', 1600 * j(), 200, 0.14, 0.22); noiseHit(0.1, 6000, 2500, 0.3, 7); break;
+      // the stasis discharge: a glassy descending dyad — cold, not zappy
+      case 'stasis':
+        tone('triangle', 2093 * j(), 1046, 0.3, 0.2);
+        tone('triangle', 1568 * j(), 784, 0.35, 0.12);
+        noiseHit(0.16, 9000, 4000, 0.18, 8);
+        break;
       case 'exec':
         tone('square', 220 * j(), 40, 0.28, 0.42);
         noiseHit(0.18, 6000, 300, 0.5, 3);
