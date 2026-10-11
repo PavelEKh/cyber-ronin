@@ -6,9 +6,28 @@ const Scene = (() => {
   const cv = $('scene');
   const ctx = cv.getContext('2d');
 
-  let W = 0, H = 0, DPR = 1, groundY = 0, cx = 0, unitPx = 1, S = 1;
+  let W = 0, H = 0, DPR = 1, groundY = 0, horizonY = 0, cx = 0, unitPx = 1, S = 1;
   let reachUnits = 150; // this frame's strike reach — drawEnemy has no state handle
-  let SPR = 2, SPR_BOSS = 4; // whole-pixel sprite scale, and the Warden's double
+  let SPR = 2, SPR_BOSS = 2; // sprite scale; the Warden draws on the same grid
+  // Every figure — hero and enemies — is drawn FIG_K over the screen ladder. The
+  // sheets are all 192px cells now, and Sprites.draw resamples a fractional scale
+  // once into a cached strip (see prescaled), so SPR no longer needs to be whole.
+  // Marks that ride on a body (pips, «!», shadows, the lock-on box, the corpse
+  // cut, the drone's hover) are in S units and multiply by FIG_K to stay on it.
+  const FIG_K = 1.1;
+  // The Warden's sprite is drawn a head taller than the hero right in its cells,
+  // so he shares everyone's pixel density. BOSS_K is how much bigger his body is
+  // than a humanoid's — the corpse cut, the glint box and his shadow scale by it.
+  const BOSS_K = 1.53;
+  // Every act's Warden wears his own body, keyed by his signature trick (ACTS.boss).
+  // The horned giant baked as plain 'boss' is the Core Shogun; a Warden whose
+  // sheet is missing falls back to him rather than to a stick figure.
+  const BOSS_SPRITE = { 1: 'boss_beta', 2: 'boss_maglev', 3: 'boss_oni', 4: 'boss',
+                        5: 'boss_armorer', 6: 'boss_double' };
+  const bossSpriteType = kind => {
+    const t = BOSS_SPRITE[kind];
+    return t && Sprites.frames(t, 'idle') > 1 ? t : 'boss';
+  };
   // Floor on pixels-per-unit. The strike zone is a fixed FRACTION of the approach
   // (BASE_RANGE / SPAWN_DIST ≈ 17%), so on a narrow screen — a phone held upright
   // above all — it collapses to a sliver you can barely read or time against. Below
@@ -40,7 +59,9 @@ const Scene = (() => {
     cv.style.height = H + 'px';
     ctx.setTransform(k, 0, 0, k, 0, 0);
     renderK = k; // baked strips must re-bake at the new backing-store scale
-    groundY = H * horizonOf();
+    Sprites.setDeviceScale(k); // the sprite strip cache keys on this, not on the live transform
+    horizonY = H * horizonOf();
+    groundY = horizonY + H * standOf();
     cx = W / 2;
     // On a wide screen the enemy's whole path fits in the half-width; on a narrow
     // one the floor takes over so the strike zone stays usable (see MIN_UNIT_PX).
@@ -58,14 +79,14 @@ const Scene = (() => {
     // ceiling only binds above 4K; the floor only on windows narrower than a
     // phone in landscape, where no scale can fit both a readable figure and a gap.
     S = Math.min(2.2, Math.max(0.42, Math.min(H / 800, W / 1600)));
-    // Sprite scale is SNAPPED TO A WHOLE NUMBER. Drawn at a fractional scale with
-    // smoothing off, a source pixel lands on the screen as 3px on one row and 4px
-    // on the next — at 1366x768 it was 1px against 2px, which visibly warps the
-    // figure. An integer step makes every source pixel exactly N by N whatever
-    // fractional x the sprite is standing on. The Warden runs at exactly twice the
-    // grid, so he is bigger without being a different resolution.
-    SPR = Math.max(1, Math.round(1.9 * S));
-    SPR_BOSS = SPR * 2;
+    // The base scale is SNAPPED TO A WHOLE NUMBER: it was for the old 96px sheets,
+    // whose pixels warped at a fractional blit (1px against 2px at 1366x768). Every
+    // sheet is a 192px cell now and a fractional destination goes through the
+    // cached one-off resample in Sprites.draw, so FIG_K may stretch it freely.
+    // The Warden used to run at twice the grid; his sprite is taller in its own
+    // cells instead.
+    SPR = Math.max(1, Math.round(1.9 * S)) * FIG_K;
+    SPR_BOSS = SPR;
     bgCache = null; // regenerate the static background
     bgBake = null;  // and its rasterised strips — they carry the old size/scale
     gradCache = {}; // gradients bake in groundY/S — stale ones would misplace light
@@ -155,7 +176,57 @@ const Scene = (() => {
   // The hero's animation timings, in seconds and in world units — one pass of
   // the sheet, whatever number of frames that sheet turned out to hold. See the
   // frame picker in the hero block for why none of this is a divisor.
-  const ATTACK_T = 0.25, HURT_T = 0.32, IDLE_T = 1.0, DEATH_T = 0.92;
+  const BOSS_STRIDE = 96; // world units per boss run cycle (the 16-frame sheets stepped every 6)
+  // ---------- Stride under the empty-road warp ----------
+  // The UI fast-forwards the world while the road is empty (main.js, up to 5.5×).
+  // Picking the run frame straight off ground covered made every leg spin at that
+  // speed too — a frantic patter. The stride now accumulates ground covered
+  // DIVIDED by the warp: at 1× it is the old frame-per-distance exactly, under
+  // the warp the legs keep their own cadence and the body travels faster than its
+  // steps. The difference is sold by the shadow-step trail (drawTrail): a few
+  // fading copies from the body's recent positions, stronger the harder the warp.
+  let warpVis = 1;
+  let strideFrame = 0;
+  const strides = new Map(); // body key → { d, ph, seen, hist: recent draw distances }
+  function strideOf(key, d) {
+    let st = strides.get(key);
+    if (!st) { st = { d, ph: -d, seen: 0, hist: [] }; strides.set(key, st); }
+    if (!reflectPass && st.seen !== strideFrame) {
+      const dd = st.d - d;              // positive while closing in
+      // a vault or a shove is a jump, not a walk — no leg flurry for it
+      if (Math.abs(dd) < 60) st.ph += dd / warpVis;
+      st.d = d;
+      st.seen = strideFrame;
+      st.hist.unshift(d);
+      if (st.hist.length > 13) st.hist.length = 13;
+    }
+    return st;
+  }
+  // how strongly the trail shows: nothing below ~1.3×, full from ~3.3×
+  const trailK = () => Math.max(0, Math.min(1, (warpVis - 1.3) / 2));
+  // draw(dx) renders one copy offset dx px along the road; ghosts come from the
+  // distances 3, 6 and 9 frames ago — under the warp those are far apart
+  function drawTrail(st, side, d, draw) {
+    const k = trailK();
+    if (!k || reflectPass) return;
+    const A = [0.6, 0.4, 0.22];
+    for (let i = 0; i < 3; i++) {
+      const hd = st.hist[(i + 1) * 3];
+      if (hd === undefined || hd - d < 4) continue;
+      ctx.save();
+      ctx.globalAlpha = A[i] * k;
+      draw(X(side, hd) - X(side, d));
+      ctx.restore();
+    }
+  }
+  function setWarp(w) {
+    warpVis = w > 1 ? w : 1;
+    strideFrame++;
+    if (strideFrame % 120 === 0) {   // forget bodies that are gone
+      for (const [key, st] of strides) if (strideFrame - st.seen > 120) strides.delete(key);
+    }
+  }
+  const ATTACK_T = 0.5, HURT_T = 0.35, IDLE_T = 2.0, DEATH_T = 0.92;  // idle: one slow chest rise per 2 s (Wan loop, 16 frames)
   const RUN_UNITS = 112;      // ground covered by one pass — two steps on this sheet
   let cinemaMode = false;
   function setCinema(on) { cinemaMode = !!on; }
@@ -231,6 +302,7 @@ const Scene = (() => {
                words: ['影', '刃', '夜勤', '酒', '影狩'] },   // shadow · blade · night shift · sake · shadow hunt
       drift: 0,
       landmark: 'pagoda',
+      stand: 0.035,        // fighters on the road, below the skyline's foot (see standOf)
       layers: ['sky', 'stars', 'moon', 'skyline', 'cityGlow', 'farRow', 'haze',
                'nearRow', 'windows', 'signs', 'traffic', 'roofs', 'cables', 'landmark',
                'puddles', 'rig', 'rigCables'],
@@ -247,6 +319,7 @@ const Scene = (() => {
                words: ['安売', '本物', '偽物', '麺', '市場'] }, // sale · genuine · FAKE · noodles · market
       drift: 0,
       landmark: 'eatery',
+      stand: 0.035,
       deck: 'paved',      // warm worn stone underfoot, not the street's neon grid
       layers: ['sky', 'stars', 'skyline', 'cityGlow', 'farRow', 'haze',
                'nearRow', 'windows', 'signs', 'lanterns', 'traffic', 'roofs', 'cables',
@@ -308,6 +381,7 @@ const Scene = (() => {
       drift: 0,
       indoor: true,
       landmark: 'columns',
+      stand: 0.035,
       profile: 'racks',   // the rows are cabinets, not buildings
       layers: ['sky', 'hallWall', 'cityGlow', 'farRow', 'haze', 'nearRow',
                'windows', 'signs', 'traffic', 'landmark', 'ceiling', 'rig'],
@@ -373,6 +447,18 @@ const Scene = (() => {
   // roof rather than walking along it. Everything positional derives from
   // groundY, so moving it moves the hero, the enemies and their markers together.
   const horizonOf = () => (SCENES[actId] && SCENES[actId].horizon) || 0.74;
+  // How far below the horizon the fighters stand, as a fraction of height. On the
+  // open-floor locations the horizon is where the far buildings meet the road;
+  // standing exactly on it read as walking along the skyline, so the fighters
+  // step down onto the road. The background and the floor keep drawing from the
+  // horizon (horizonY) — drawBg and drawGroundFx swap it in — while everything
+  // positional (groundY) follows the fighters.
+  const standOf = () => (SCENES[actId] && SCENES[actId].stand) || 0;
+  function onHorizon(fn) {
+    const g = groundY;
+    groundY = horizonY;
+    try { fn(); } finally { groundY = g; }
+  }
 
   // ---------- Static act decorations (cache) ----------
   // The generation itself lives in bgcache.js — canvas-free, one seeded stream per
@@ -1959,7 +2045,8 @@ const Scene = (() => {
     },
   };
 
-  function drawBg(t, dt) {
+  function drawBg(t, dt) { onHorizon(() => drawBgAt(t, dt)); }
+  function drawBgAt(t, dt) {
     const st = ACT_STYLE[actId];
     if (!bgCache) buildBgCache();
     if (!bgBake) bgBake = buildBgBake(); // rebake alongside the geometry
@@ -2905,7 +2992,8 @@ const Scene = (() => {
     }
   }
 
-  function drawGroundFx(t) {
+  function drawGroundFx(t) { onHorizon(() => drawGroundFxAt(t)); }
+  function drawGroundFxAt(t) {
     const st = ACT_STYLE[actId];
     // reflections fade with depth
     const fade = ctx.createLinearGradient(0, groundY, 0, groundY + 150);
@@ -3690,15 +3778,16 @@ const Scene = (() => {
     const hx = cx + lg;
 
     groundGlow(hx, st.accent2, 60 * S);
-    contactShadow(hx, 26 * S);
+    contactShadow(hx, 26 * S * FIG_K);
 
     // ---------- sprite hero (the pixel cyber ronin) ----------
     if (Sprites.ready()) {
       const scale = SPR;
-      // halo: cold ice while the stasis is armed, blinks red while stunned
+      // halo: cold ice while the stasis is armed, blinks red while stunned —
+      // both are signals and outrank the palette; the calm halo is the blade's
       const glow = stunned && Math.floor(t * 20) % 2 ? 'rgba(255,45,78,0.85)'
         : stasisReady ? 'rgba(159,232,255,0.85)'
-        : 'rgba(38,214,255,0.55)';
+        : (bladeStyle ? bladeStyle.halo : 'rgba(38,214,255,0.55)');
       // The hero's frames are picked by DURATION, never by a tuned divisor.
       // Every re-bake so far has moved a frame count — idle 10 to 6, hurt 4 to
       // 3, run 8 to 16 and back — and each time a magic number somewhere here
@@ -3727,10 +3816,13 @@ const Scene = (() => {
       // a smeared blur in the wet ground would read as dirt, not speed.
       if (slashing && !reflectPass && run && run.combo >= 10) {
         ctx.save();
+        // a bought palette lends the ghosts its glow; the stock blade leaves
+        // them bare, exactly as they were
+        const ghostGlow = bladeStyle ? bladeStyle.glow : null;
         ctx.globalAlpha = 0.28 * (1 - age / 0.16);
-        Sprites.draw(ctx, 'hero', name, idx, hx - lastSlash.side * 7 * S, groundY, scale, face, null);
+        Sprites.draw(ctx, 'hero', name, idx, hx - lastSlash.side * 7 * S, groundY, scale, face, ghostGlow);
         ctx.globalAlpha = 0.13 * (1 - age / 0.16);
-        Sprites.draw(ctx, 'hero', name, idx, hx - lastSlash.side * 14 * S, groundY, scale, face, null);
+        Sprites.draw(ctx, 'hero', name, idx, hx - lastSlash.side * 14 * S, groundY, scale, face, ghostGlow);
         ctx.restore();
       }
       if (Sprites.draw(ctx, 'hero', name, idx, hx, groundY, scale, face, glow)) {
@@ -3788,8 +3880,8 @@ const Scene = (() => {
     ctx.beginPath();
     // an armed stasis tints the blade cold ice
     const bladePulse = 0.5 + 0.5 * Math.sin(t * 11);
-    const bladeColor = stasisReady ? (bladePulse > 0.5 ? '#9fe8ff' : '#e8faff') : st.accent2;
-    const bladeGlow = stasisReady ? '#9fe8ff' : (slashing ? '#ffffff' : st.accent2);
+    const bladeColor = stasisReady ? (bladePulse > 0.5 ? '#9fe8ff' : '#e8faff') : bladeCore();
+    const bladeGlow = stasisReady ? '#9fe8ff' : (slashing ? '#ffffff' : bladeGlowC());
     const bladeBlur = stasisReady ? 20 + 8 * bladePulse : (slashing ? 18 : 12);
     // frost crackle on the blade while the discharge is armed
     function bladeCrackle(x1, y1, x2, y2) {
@@ -3886,11 +3978,10 @@ const Scene = (() => {
   const eColor = (t) => (ENEMY_STYLE[t] || ENEMY_STYLE.drone).color;
   // the stance palette, shared with the HUD chips in main.js
   const STANCE_HUE = { blade: '#26d6ff', sweep: '#ff5c9e', pierce: '#ffb42d' };
-  // The drone's rotor: one revolution every ROTOR_T, however many frames the
-  // strip turned out to hold. It used to be a bare `t * 18`, tuned by hand to a
-  // four-frame loop — a re-bake to six frames would have quietly slowed the
-  // blades by a third while looking like nothing had changed.
-  const ROTOR_T = 0.22;
+  // The drone's hover: the whole fly strip is one ROTOR_T loop, however many
+  // frames it holds. The old strip only spun a pixel rotor (0.22 s a turn); the
+  // video-drawn one is a two-second hover with the blur and the bob inside it.
+  const ROTOR_T = 2.0;
   const rotorFrame = (t, seed) =>
     Math.floor(t * Sprites.frames('drone', 'fly') / ROTOR_T) + seed;
   // The humanoid-sprite types carry a halo; drone/mimic/boss draw themselves and
@@ -3902,6 +3993,11 @@ const Scene = (() => {
   // The one place that knows which types hover instead of walking — shared by
   // the body drawing (shadow, ground anchor) and the glint bracket box.
   const isFlying = (t) => t === 'drone' || t === 'mimic';
+  // How high a flyer hovers, in S units above the road — one number for the
+  // drone, the mimic wearing its shape, the falling corpse and the lock-on box.
+  // At 44 the video-drawn drone floated above the hero's hat; at chest height it
+  // reads as something in the fight rather than overhead.
+  const DRONE_HOVER = 34;
 
   // Fixed-step interpolation: the sim advances in 60 Hz quanta while the
   // display may refresh faster; on 144/165 Hz panels raw sim positions repeat
@@ -4055,7 +4151,7 @@ const Scene = (() => {
     // the drone flies: a small, faint shadow instead of a footprint. A mimic wears
     // the same disguise, so it hovers too.
     const flying = isFlying(e.type);
-    contactShadow(x, (flying ? 14 : 21) * S, flying ? 0.45 : 1);
+    contactShadow(x, (flying ? 14 : 21) * S * FIG_K, flying ? 0.45 : 1);
 
     // WHO THE ARC WILL TAKE. The sweep's rule — every body in reach on that
     // side, in one motion — was true and invisible: the player aimed at one
@@ -4089,7 +4185,12 @@ const Scene = (() => {
     const conf = SPRITE_CONF[e.type];
     let spriteDrawn = false;
     if (conf && Sprites.ready()) {
-      let anim = 'run', idx = Math.floor(d / 6), glow = conf.glow;
+      // The stride is picked by ground covered, one frame per 6 units. The
+      // distance SHRINKS as a body closes in, so it is negated — frame by
+      // distance ran every enemy's cycle backwards (a clear stride and a
+      // streaming scarf made it obvious). Negative indices wrap in Sprites.draw.
+      const stride = strideOf('e' + e.id, d);
+      let anim = 'run', idx = Math.floor(stride.ph / 6), glow = conf.glow;
       // shielder and pendulum: the halo counts the hits they still hold
       if (e.type === 'shield') glow = `rgba(63,107,255,${(0.14 + 0.16 * e.hits).toFixed(2)})`;
       if (e.type === 'adapt') glow = `rgba(180,255,61,${(0.12 + 0.14 * e.hits).toFixed(2)})`;
@@ -4100,7 +4201,9 @@ const Scene = (() => {
         anim = 'idle'; idx = Math.floor(t * 10);
         if (Math.floor(t * 14) % 2) glow = 'rgba(255,255,255,0.85)'; // wind-up blinking
       } else if (e.type === 'fencer' && e.fstate) {
-        anim = 'idle'; idx = Math.floor(t * 8);
+        // guard — the low parry stance, blade forward; the window drops it to the
+        // upright salute, so "open" reads from the pose as well as the green blink
+        anim = e.fstate === 'guard' ? 'guard' : 'idle'; idx = Math.floor(t * 8);
         if (e.fstate === 'open' && Math.floor(t * 14) % 2) glow = 'rgba(45,255,143,0.9)'; // the window
       } else if (e.type === 'twin' && run && run.twinPress &&
                  run.twinPress.pair === e.pair && run.twinPress.side === e.side) {
@@ -4114,15 +4217,18 @@ const Scene = (() => {
         spriteDrawn = Sprites.draw(ctx, e.type, 'hurt', 1, 0, 0, SPR, face, glow);
         ctx.restore();
       } else {
+        if (anim === 'run') {
+          drawTrail(stride, e.side, d, dx => Sprites.draw(ctx, e.type, anim, idx, x + dx, groundY, SPR, face, null));
+        }
         spriteDrawn = Sprites.draw(ctx, e.type, anim, idx, x, groundY, SPR, face, glow);
       }
     }
 
     if (e.type === 'drone') {
-      const y = groundY - 44 * S + Math.sin(t * 4 + e.id) * 5 * S;
+      const y = groundY - DRONE_HOVER * S * FIG_K + Math.sin(t * 4 + e.id) * 5 * S;
       // pixel drone: the hull's underside is the sprite's "feet"; frames spin the rotor
       if (Sprites.ready() &&
-          Sprites.draw(ctx, 'drone', 'fly', rotorFrame(t, e.id), x, y + 13 * S, SPR, face,
+          Sprites.draw(ctx, 'drone', 'fly', rotorFrame(t, e.id), x, y + 13 * S * FIG_K, SPR, face,
             'rgba(255,92,158,0.5)')) {
         return;
       }
@@ -4152,7 +4258,7 @@ const Scene = (() => {
       // stays a solid drone (with a brief hot confirming flare); a phantom turns
       // hollow and cold — an outline with nothing inside, split and glitching, so
       // "there is nothing here to hit" reads at a glance.
-      const y = groundY - 44 * S + Math.sin(t * 4 + e.id) * 5 * S;
+      const y = groundY - DRONE_HOVER * S * FIG_K + Math.sin(t * 4 + e.id) * 5 * S;
       const flash = (e.reveal || 0) / Game.MIMIC_FLASH; // 1 at the reveal, 0 once it fades
       const dia = (ox, yy) => { // the drone's diamond hull
         ctx.beginPath();
@@ -4177,7 +4283,7 @@ const Scene = (() => {
           // scratch canvas — eight offset stamps of the sprite minus the sprite
           // itself leave a pixel-wide ring, tinted cold. The same silhouette as
           // the disguise, with nothing inside it: the lesson drawn as a picture.
-          const hgt = Sprites.FRAME * SPR;
+          const hgt = Math.ceil(Sprites.FRAME * SPR); // a canvas is whole pixels
           if (!phantomCv || phantomCv.width !== hgt) {
             phantomCv = document.createElement('canvas');
             phantomCv.width = phantomCv.height = hgt;
@@ -4206,7 +4312,7 @@ const Scene = (() => {
           ctx.globalAlpha = Math.min(1, alpha);
           ctx.shadowColor = '#7fd0ff';
           ctx.shadowBlur = 9 + 14 * flash;
-          ctx.drawImage(phantomCv, x - hgt / 2 + jit, y + 13 * S - Sprites.FEET * SPR);
+          ctx.drawImage(phantomCv, x - hgt / 2 + jit, y + 13 * S * FIG_K - Sprites.FEET * SPR);
           ctx.shadowBlur = 0;
           return true;
         })();
@@ -4226,7 +4332,7 @@ const Scene = (() => {
         let glow = 'rgba(255,92,158,0.5)';
         if (e.revealed) glow = `rgba(255,255,255,${(0.55 + 0.4 * flash).toFixed(2)})`;
         const drew = Sprites.ready() &&
-          Sprites.draw(ctx, 'drone', 'fly', rotorFrame(t, e.id), x, y + 13 * S, SPR, face, glow);
+          Sprites.draw(ctx, 'drone', 'fly', rotorFrame(t, e.id), x, y + 13 * S * FIG_K, SPR, face, glow);
         if (!drew) {
           ctx.save();
           ctx.strokeStyle = eColor('drone');
@@ -4263,7 +4369,7 @@ const Scene = (() => {
       const open = e.fstate === 'open';
       const color = open ? (Math.floor(t * 14) % 2 ? '#b6ffd9' : '#2dff8f') : eColor('fencer');
       if (!spriteDrawn) stickman(x, groundY, { color, face, phase: ph, pose: e.fstate ? (open ? 'throw' : 'shield') : 'run' });
-      if (e.fstate === 'guard') {
+      if (e.fstate === 'guard' && !spriteDrawn) { // the sprite holds its own blade up
         ctx.save();
         ctx.strokeStyle = '#e6d4ff';
         ctx.shadowColor = eColor('fencer');
@@ -4284,7 +4390,7 @@ const Scene = (() => {
         ctx.shadowColor = '#2dff8f';
         ctx.shadowBlur = 12;
         ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 18);
-        ctx.fillText('!', x, groundY - 86 * S);
+        ctx.fillText('!', x, groundY - 86 * S * FIG_K);
         ctx.restore();
       }
     } else if (e.type === 'adapt') {
@@ -4312,7 +4418,7 @@ const Scene = (() => {
         ctx.shadowColor = '#ff5c5e';
         ctx.shadowBlur = 10;
         ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 16);
-        ctx.fillText('!', x, groundY - 86 * S);
+        ctx.fillText('!', x, groundY - 86 * S * FIG_K);
         ctx.restore();
       }
     }
@@ -4328,7 +4434,7 @@ const Scene = (() => {
       for (let i = 0; i < maxHits; i++) {
         const px2 = x - (maxHits - 1) * step / 2 + i * step;
         ctx.beginPath();
-        ctx.arc(px2, groundY - 82 * S, pr, 0, 7);
+        ctx.arc(px2, groundY - 82 * S * FIG_K, pr, 0, 7);
         if (i < e.hits) {
           ctx.fillStyle = '#ffffff';
           ctx.shadowBlur = 7;
@@ -4362,14 +4468,14 @@ const Scene = (() => {
       const want = Game.stanceFor(run, e);
       if (want >= 0) {
         const col = STANCE_HUE[Game.STANCES[want]] || '#ffffff';
-        const my = groundY - 100 * S;
+        const my = groundY - 100 * S * FIG_K;
         ctx.save();
         if (sealed) {
           // The seal is LIGHT, not a frame: an outline around a body read as UI
           // pasted over the world. A soft column of the grammar's own colour
           // rises through the silhouette instead — the body itself is lit by
           // the word that can hurt it.
-          const g = ctx.createRadialGradient(x, groundY - 26 * S, 2, x, groundY - 26 * S, 46 * S);
+          const g = ctx.createRadialGradient(x, groundY - 26 * S * FIG_K, 2, x, groundY - 26 * S * FIG_K, 46 * S * FIG_K);
           const pulse = 0.30 + 0.16 * Math.sin(t * 4);
           g.addColorStop(0, col + 'cc');
           g.addColorStop(0.45, col + '44');
@@ -4377,7 +4483,7 @@ const Scene = (() => {
           ctx.globalAlpha = pulse;
           ctx.fillStyle = g;
           ctx.beginPath();
-          ctx.ellipse(x, groundY - 26 * S, 30 * S, 48 * S, 0, 0, Math.PI * 2);
+          ctx.ellipse(x, groundY - 26 * S * FIG_K, 30 * S * FIG_K, 48 * S * FIG_K, 0, 0, Math.PI * 2);
           ctx.fill();
           // and a bright pool at the feet, so the mark survives a crowded road
           ctx.globalAlpha = pulse * 1.3;
@@ -4427,7 +4533,7 @@ const Scene = (() => {
     for (const c of fx.corpses) {
       const k = (fx.tr - c.t0) / (c.life || CORPSE_LIFE);
       if (k >= 1) continue;
-      const color = CORPSE_COLORS[c.type] || eColor('drone');
+      const color = CORPSE_COLORS[c.type] || (c.type.startsWith('boss_') ? eColor('boss') : eColor('drone'));
       ctx.save();
       // an executed body stays solid through most of its flight and burns out
       // in the last third; an ordinary one dissolves from the first frame
@@ -4438,10 +4544,10 @@ const Scene = (() => {
         // An executed one is batted clean across the road: a long climbing arc
         // with a capped landing — it may slide and tumble, it never sinks.
         const dx = k * (c.exec ? 140 : 16) * S;
-        const dy = c.exec ? Math.min(-k * 55 * S + k * k * 100 * S, 44 * S) : k * k * 42 * S;
-        ctx.translate(cx + (c.wx - worldVis) * unitPx + c.side * dx, groundY - 44 * S + dy);
+        const dy = c.exec ? Math.min(-k * 55 * S + k * k * 100 * S, DRONE_HOVER * S * FIG_K) : k * k * (DRONE_HOVER - 2) * S * FIG_K;
+        ctx.translate(cx + (c.wx - worldVis) * unitPx + c.side * dx, groundY - DRONE_HOVER * S * FIG_K + dy);
         ctx.rotate(k * (c.exec ? 11 : 5) * c.side);
-        if (Sprites.ready() && Sprites.draw(ctx, 'drone', 'fly', Sprites.frames('drone', 'fly') - 1, 0, 13 * S, SPR, -c.side, null)) {
+        if (Sprites.ready() && Sprites.draw(ctx, 'drone', 'fly', Sprites.frames('drone', 'fly') - 1, 0, 13 * S * FIG_K, SPR, -c.side, null)) {
           ctx.restore();
           continue;
         }
@@ -4461,12 +4567,12 @@ const Scene = (() => {
         // drone's spinning drop is a machine losing power; a cut figure comes apart:
         // the top half is flung outward (the way the slash travelled) and pitches
         // over, the lower half buckles where it stood, both fading into the "memory
-        // upload" the corporate log keeps filing. The Warden is twice everyone's
+        // upload" the corporate log keeps filing. The Warden is BOSS_K everyone's
         // size, so the cut, the clip and the throw all scale with the figure — but
         // his greater mass spins and flies LESS, so he comes apart heavily, not like
         // a tossed drone.
-        const boss = c.type === 'boss';
-        const fscale = boss ? 2 : (c.scale || 1);
+        const boss = c.type === 'boss' || c.type.startsWith('boss_');
+        const fscale = (boss ? BOSS_K : (c.scale || 1)) * FIG_K;
         const cutY = -27 * S * fscale;       // the slash line, at the waist
         const dir = c.side;                  // the cut carries the pieces outward, off the hero
         // an execution multiplies the send-off: the top half SAILS half a road
@@ -4552,9 +4658,9 @@ const Scene = (() => {
     const flinch = flinchAge !== undefined && flinchAge < 0.26;
     // hit recoil — a short push away from the hero
     const recoil = flinch ? Math.sin(Math.PI * flinchAge / 0.26) * 9 * S * b.side : 0;
-    groundGlow(drawX, eColor('boss'), 85 * S);
+    groundGlow(drawX, eColor('boss'), 50 * S * FIG_K);
     // mid-vault the Warden is in the air — the shadow shrinks and fades under him
-    contactShadow(drawX + recoil, (40 - jumpK * 18) * S, 1 - jumpK * 0.55);
+    contactShadow(drawX + recoil, (26 - jumpK * 12) * S * FIG_K, 1 - jumpK * 0.55);
     ctx.save();
     // jump: an arc rise and a somersault around the center of mass
     ctx.translate(drawX + recoil, groundY - jumpK * 120 * S);
@@ -4569,7 +4675,14 @@ const Scene = (() => {
     // over his red halo, and a reversal crown sits above his head (drawn below).
     const lying = b.kind === 3 && b.state === 'qte' && b.glitch && b.glitch[b.idx];
     let bAnim = b.state === 'walk' && !jumpK ? 'run' : 'idle';
-    let bIdx = b.state === 'walk' ? Math.floor(rdist(b) / 6) : Math.floor(t * 8);
+    // the stride runs on ground covered — negated, since the distance SHRINKS as he
+    // closes in (the same fix the humanoids got; without it his legs ran backwards)
+    // One stride cycle covers BOSS_STRIDE units whatever the sheet holds: a 16-frame
+    // sheet steps every 6 units as before, a longer one steps more often, so a
+    // re-bake with more frames runs smoother instead of slower (feet would slide).
+    const runN = Sprites.frames(bossSpriteType(b.kind), 'run') || 16;
+    const bStride = strideOf('b' + b.kind + ':' + b.side, rdist(b));
+    let bIdx = b.state === 'walk' ? Math.floor(bStride.ph / (BOSS_STRIDE / runN)) : Math.floor(t * 8);
     let bGlow = 'rgba(255,59,59,0.55)';
     if (flinch) {
       bAnim = 'hurt';
@@ -4578,7 +4691,11 @@ const Scene = (() => {
     } else if (lying && Math.floor(t * 12) % 2) {
       bGlow = 'rgba(255,77,224,0.9)'; // the corrupt-magenta of a lie, flickering
     }
-    const bossSprite = Sprites.ready() && Sprites.draw(ctx, 'boss',
+    if (bAnim === 'run' && Sprites.ready()) {
+      drawTrail(bStride, b.side, rdist(b), dx => Sprites.draw(ctx, bossSpriteType(b.kind),
+        bAnim, bIdx, dx, 0, SPR_BOSS, -b.side, null));
+    }
+    const bossSprite = Sprites.ready() && Sprites.draw(ctx, bossSpriteType(b.kind),
       bAnim, bIdx, 0, 0, SPR_BOSS, -b.side, bGlow);
     if (!bossSprite) stickman(0, 0, {
       color: eColor('boss'), face: -b.side, phase: rdist(b) / 22,
@@ -4602,7 +4719,7 @@ const Scene = (() => {
       ctx.restore();
     }
     // the sprite Warden has his own helmet — vector horns are fallback-only
-    const headY = bossSprite ? (b.state === 'walk' && !jumpK ? -95 : -115) * S : -52 * s2;
+    const headY = bossSprite ? -90 * S * FIG_K : -52 * s2;
     ctx.save();
     if (!bossSprite) {
       ctx.strokeStyle = '#ffd0d0';
@@ -4837,6 +4954,23 @@ const Scene = (() => {
   let lastWX = null; // previous worldX — for dash splashes
   let roadDimK = 0;  // server-hall lights-out envelope, 0..1 (see render)
 
+  // ---------- Blade palette (cosmetic) ----------
+  // null — the free 'ion' default: the act's own accent paints the blade, as
+  // it always has. A bought palette recolors only the hero's OWN light (slash
+  // arc, idle halo, speed ghosts, the vector blade); every color that carries
+  // a rule — stasis ice, stun red, stance hues, enemy cues — ignores it.
+  let bladeStyle = null; // { core, glow, halo } | null
+  function setBlade(style) {
+    if (!style || !style.core) { bladeStyle = null; return; }
+    const glow = style.glow || style.core;
+    // the idle halo needs the core as rgba at the stock 0.55 — precompute once
+    const n = parseInt(style.core.slice(1), 16);
+    const halo = `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},0.55)`;
+    bladeStyle = { core: style.core, glow, halo };
+  }
+  const bladeCore = () => (bladeStyle ? bladeStyle.core : ACT_STYLE[actId].accent2);
+  const bladeGlowC = () => (bladeStyle ? bladeStyle.glow : ACT_STYLE[actId].accent2);
+
   function slash(side, hit) {
     lastSlash = { side, t: fx.t };
     fx.slashes.push({ side, t0: fx.t, hit });
@@ -4907,7 +5041,7 @@ const Scene = (() => {
       ctx.save();
       ctx.translate(cx, groundY - 34 * S);
       ctx.scale(sl.side, 1);
-      ctx.strokeStyle = k < 0.4 ? '#ffffff' : ACT_STYLE[actId].accent2;
+      ctx.strokeStyle = k < 0.4 ? '#ffffff' : bladeCore();
       ctx.globalAlpha = 1 - k;
       ctx.shadowColor = '#ffffff';
       ctx.shadowBlur = 16;
@@ -5041,13 +5175,13 @@ const Scene = (() => {
       // the lock-on brackets: four corners snap onto the silhouette — wide on
       // the first frame, tight by half-life — and fade as they hold. The box
       // derives from the sprite scale the drawers use (one humanoid box at
-      // SPR, the Warden at SPR_BOSS scales with it), so a future enemy type
+      // SPR, the Warden BOSS_K taller), so a future enemy type
       // needs no tuning here — only a flyer joins the isFlying hover branch.
-      const bodyK = id === 'boss' ? SPR_BOSS / SPR : 1;
+      const bodyK = (id === 'boss' ? BOSS_K : 1) * FIG_K;
       let half = 15 * S * bodyK, yTop = groundY - 48 * S * bodyK, yBot = groundY - 2;
       if (id !== 'boss' && isFlying(e.type)) {
-        const yc = groundY - 44 * S + Math.sin(fx.t * 4 + e.id) * 5 * S;
-        half = 12 * S; yTop = yc - 13 * S; yBot = yc + 13 * S;
+        const yc = groundY - DRONE_HOVER * S * FIG_K + Math.sin(fx.t * 4 + e.id) * 5 * S;
+        half = 12 * S * FIG_K; yTop = yc - 13 * S * FIG_K; yBot = yc + 13 * S * FIG_K;
       }
       const pad = (3 + 10 * Math.pow(1 - Math.min(k * 2, 1), 2)) * S;
       const arm = 6 * S;
@@ -5077,12 +5211,28 @@ const Scene = (() => {
   }
 
   // ---------- Act change ----------
+  // Scene light on the figures (see Sprites.setLight): rim — the act's signs and
+  // sky, bounce — its floor. Chosen per place, not derived: the street's floor
+  // is the wet neon grid, the market's is warm stone under red lanterns.
+  const FIGURE_LIGHT = {
+    street: { rim: '#ff2d78', bounce: '#26d6ff' },
+    market: { rim: '#ffd27d', bounce: '#ff5ca8' },
+    train:  { rim: '#4dc9ff', bounce: '#ffb42d' },
+    ship:   { rim: '#ffc266', bounce: '#3fd9e8' },
+    server: { rim: '#6fd8ff', bounce: '#19c8ff' },
+    garden: { rim: '#ff7ad9', bounce: '#9be3ff' },
+  };
+  let figureLight = true; // the debug panel's A/B switch
+  function setFigureLight(on) { figureLight = !!on; Sprites.setLight(figureLight ? FIGURE_LIGHT[actId] : null); }
+
   function setAct(id) {
     if (!ACT_STYLE[id]) id = 'street';
     actId = id;
+    Sprites.setLight(figureLight ? FIGURE_LIGHT[id] : null);
     // the horizon is per-location, so the ground line has to be recomputed here
     // as well as on resize — see SCENES.horizon
-    groundY = H * horizonOf();
+    horizonY = H * horizonOf();
+    groundY = horizonY + H * standOf();
     alignDeck();
     bgCache = null;
     bgBake = null;  // strips are per-act; also frees the old act's ~25 MB
@@ -5404,7 +5554,7 @@ const Scene = (() => {
   initWeather();
   initTraffic();
 
-  return { render, setAct, setCinema, setWeather, slash, burst, floatText, phantomScatter, corpse, heroDie, heroHurt, shake, flash, punch, gust,
+  return { bossSpriteType, render, setWarp, setFigureLight, setAct, setCinema, setWeather, setBlade, slash, burst, floatText, phantomScatter, corpse, heroDie, heroHurt, shake, flash, punch, gust,
            stanceFlash, enemyColor: eColor, STANCE_HUE,
     setPeril, glint, heroShock, setFx, getFx: () => fx0, setQuality, X: (side, dist) => X(side, dist) };
 })();

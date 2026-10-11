@@ -103,7 +103,8 @@ const STEP = 1 / 60;
 // rejected loudly instead. Bumping the epoch retires stored replays (board
 // ROWS survive). The full version shows in the menu corner.
 const VERSION_MAJOR = 1;
-const VERSION_REPLAY = 6; // 1.6: the pool trades its dead pair (stasis, intercept) + the road learns its weather — unreleased, one epoch until it ships
+const VERSION_REPLAY = 7; // 1.7: the Armorer's rally caps at three returns
+                          // (1.6: the pool trades its dead pair (stasis, intercept) + the road learns its weather)
                           // (1.6: the pool trades its dead pair — the Stasis Discharge freezes the struck zone, the Intercept re-aims deflected steel)
                           // (1.5: the arc's follow-through is forgiven — a press into the side a sweep just cleared is not a whiff)
                           // (1.4: stances — the two buttons keep their sides and change what a press means)
@@ -227,6 +228,9 @@ const ARMORER_THROW_MIN = 380; // he only throws from beyond this: the blade's w
                                // flight stays readable, and it clears max range (~257)
 const ARMORER_THROW_T = 1.5;   // sec between throws, plus up to ARMORER_THROW_RND
 const ARMORER_THROW_RND = 0.8;
+const ARMORER_RALLY_CAP = 3;   // he bats a return back at most this many times: the rally grows
+                               // over the first throws, then holds — uncapped, a long fight (every
+                               // retreat buys another throw) ran it to 8–10 returns, an endless ping-pong
 const ARMORER_BURN_CAP = 3;    // banked burns cap, and a burned chain never drops below
 const ARMORER_BURN_FLOOR = 3;  // this many links — the duel must still be a duel
 const GUST_MULT = 3.2;   // Maglev gust speed multiplier
@@ -273,7 +277,7 @@ const ACTS = [
 // throwDist/projSpeed — thrower: stops and hurls a shuriken that can be deflected.
 const ENEMY_TYPES = {
   drone:   { name: 'Дрон',     en: { name: 'Drone' },    hits: 1, speed: 132, credits: 1, score: 10 },
-  punk:    { name: 'Панк',     en: { name: 'Punk' },     hits: 2, speed: 100, credits: 2, score: 25, swap: true },
+  punk:    { name: 'Трейсер',  en: { name: 'Tracer' },     hits: 2, speed: 100, credits: 2, score: 25, swap: true },
   shield:  { name: 'Щитовик',  en: { name: 'Shielder' }, hits: 3, speed: 72,  credits: 4, score: 40 },
   thrower: { name: 'Метатель', en: { name: 'Thrower' },  hits: 1, speed: 106, credits: 4, score: 40, throwDist: 430, projSpeed: 300 },
   // Rhythm breakers: they punish mindless mashing, each with its own input.
@@ -502,9 +506,9 @@ const SQUALL_SIZE = 1.45;  // SQUALL: wave size multiplier (light enemies only)
 // icon — the HUD badge glyph; tip — the detailed advice shown on pause.
 const MUTATORS = [
   { id: 'squall', icon: '🌪', name: 'ШКВАЛ',       desc: 'плотная толпа лёгкой пехоты',
-    tip: 'Врагов в полтора раза больше, но все они лёгкие — дронов и панков нет смысла бояться. Держи ровное чередование сторон и бей только в зоне: на такой плотности один промах стоит целой цепочки комбо.',
+    tip: 'Врагов в полтора раза больше, но все они лёгкие — дронов и трейсеров нет смысла бояться. Держи ровное чередование сторон и бей только в зоне: на такой плотности один промах стоит целой цепочки комбо.',
     en: { name: 'SQUALL', desc: 'a dense crowd of light infantry',
-      tip: 'Half again as many enemies, but all of them are light — drones and punks, nothing that outlasts you. Keep a steady left-right alternation and only swing inside the zone: at this density one whiff costs a whole combo chain.' } },
+      tip: 'Half again as many enemies, but all of them are light — drones and tracers, nothing that outlasts you. Keep a steady left-right alternation and only swing inside the zone: at this density one whiff costs a whole combo chain.' } },
   { id: 'fog',    icon: '🌫', name: 'ТУМАН',       desc: 'враги проявляются только вблизи',
     tip: 'Проявляются они поздно, но приходят по тем же правилам — слушай шаги и смотри на метки зоны, а не вдаль. Не бей на упреждение в пустоту: стан в тумане почти всегда означает пропущенный удар.',
     en: { name: 'FOG', desc: 'enemies materialize only up close',
@@ -514,9 +518,9 @@ const MUTATORS = [
     en: { name: 'STEEL RAIN', desc: 'stray shurikens fly in — deflect them',
       tip: 'Every few seconds a shuriken arrives with no thrower behind it. The same in-zone strike deflects it, and the reflected blade flies back and kills everything on its side. Always prioritise the shuriken: it moves faster than any footsoldier.' } },
   { id: 'blitz',  icon: '⚡', name: 'БЛИЦ',        desc: 'враги быстрее, но держат на удар меньше',
-    tip: 'Размен в твою пользу: щитовик падает с двух ударов, панк — с одного, но времени на решение на четверть меньше. Не копи цели — бей ближайшую сразу, как она вошла в зону.',
+    tip: 'Размен в твою пользу: щитовик падает с двух ударов, трейсер — с одного, но времени на решение на четверть меньше. Не копи цели — бей ближайшую сразу, как она вошла в зону.',
     en: { name: 'BLITZ', desc: 'enemies are faster but take one hit less',
-      tip: 'The trade favours you: a shielder drops in two hits, a punk in one — but you get a quarter less time to decide. Do not let targets stack up; hit the nearest one the moment it enters the zone.' } },
+      tip: 'The trade favours you: a shielder drops in two hits, a tracer in one — but you get a quarter less time to decide. Do not let targets stack up; hit the nearest one the moment it enters the zone.' } },
   // Curated PAIRS: two base rules at once, hand-vetted for fairness and named
   // as their own thing. They join the roll only deep into endless (see
   // MUT_PAIR_WAVE) and pay MUT_PAIR_CREDIT. `combo` lists the base rules the
@@ -791,6 +795,40 @@ const META = [
 const RIPOSTE_HOLD = [0, 0.4, 0.7];
 const MOMENTUM_EVERY = [0, 8, 6, 4];
 
+// ---------- Blade palettes (the cosmetic rack) ----------
+// A late-career credit sink that buys IDENTITY, never power: a palette
+// recolors the hero's own light — the slash arc, the idle halo, the speed
+// ghosts — and nothing that carries a rule. Signals keep their colors under
+// any palette: stasis frost stays ice, the stun blink stays red, stance chips
+// keep their grammar hues, every enemy-side cue is untouched. 'ion' is the
+// free default and follows the act's own accent, as the blade always has —
+// core: null means "the act paints me". Prices sit above the firmware shop
+// on purpose: this rack is what credits are FOR once the firmware is bought.
+const BLADES = [
+  { id: 'ion',      name: 'Ион',      en: { name: 'Ion' },      cost: 0,    core: null,      glow: null },
+  { id: 'oni',      name: 'Они',      en: { name: 'Oni' },      cost: 600,  core: '#ff3d6e', glow: '#ff7e9e' },
+  { id: 'kintsugi', name: 'Кинцуги',  en: { name: 'Kintsugi' }, cost: 1000, core: '#ffd24d', glow: '#ffe89a' },
+  { id: 'jade',     name: 'Нефрит',   en: { name: 'Jade' },     cost: 1500, core: '#3dff9e', glow: '#8affc9' },
+  { id: 'wisteria', name: 'Глициния', en: { name: 'Wisteria' }, cost: 2200, core: '#b44dff', glow: '#d493ff' },
+  { id: 'ghost',    name: 'Призрак',  en: { name: 'Ghost' },    cost: 3000, core: '#f2f6ff', glow: '#ffffff' },
+];
+const bladeById = id => BLADES.find(b => b.id === id) || BLADES[0];
+// Buying is equipping: nobody buys a katana to leave it on the wall.
+function buyBlade(s, id) {
+  const b = BLADES.find(x => x.id === id);
+  if (!b || !b.cost || s.meta.blades[id] || s.meta.credits < b.cost) return false;
+  s.meta.credits -= b.cost;
+  s.meta.blades[id] = true;
+  s.meta.blade = id;
+  return true;
+}
+function setBlade(s, id) {
+  const b = BLADES.find(x => x.id === id);
+  if (!b || (b.cost > 0 && !s.meta.blades[id])) return false;
+  s.meta.blade = id;
+  return true;
+}
+
 // ---------- State ----------
 function createState(seed = 1) {
   return {
@@ -799,6 +837,8 @@ function createState(seed = 1) {
     meta: {
       credits: 0,
       upgrades: {}, // meta upgrade id -> level
+      blade: 'ion', // equipped blade palette id
+      blades: {},   // owned palette id -> true ('ion' is free and never listed)
       ach: {},      // achievement id -> true (unlocked forever)
       stats: {
         runs: 0, bestAct: 0, bestScore: 0, bestCombo: 0, totalKills: 0, wins: 0,
@@ -839,6 +879,13 @@ function normalizeState(saved) {
         if (saved.meta.ach[a.id]) s.meta.ach[a.id] = true;
       }
     }
+    // blade palettes: only known ids survive, the equipped one must be owned
+    if (saved.meta.blades) {
+      for (const b of BLADES) {
+        if (b.cost > 0 && saved.meta.blades[b.id]) s.meta.blades[b.id] = true;
+      }
+    }
+    if (typeof saved.meta.blade === 'string') setBlade(s, saved.meta.blade);
     // the daily board: a string date and sane numbers, or nothing at all
     const num = v => (Number.isFinite(v) ? Math.max(0, v) : 0);
     for (const slot of ['daily', 'dailyS']) {
@@ -2054,8 +2101,9 @@ const BOSS_BEHAVIOR = {
   // whole flight is readable. Every blade is an offer: deflect it back into him
   // and it burns a link out of his next chain. But he learns: each successive
   // throw he is ready to BAT THE RETURN BACK one more time — the first blade
-  // he never parries, the second once, the third twice — a rally that grows a
-  // return longer every exchange, each return a shade faster. While his blade
+  // he never parries, the second once, the third twice, every later one three
+  // times (ARMORER_RALLY_CAP) — a rally that grows over the first exchanges and
+  // then holds, each return a shade faster. While his blade
   // is in the air he throws no other: the rally IS the engagement. At the
   // duel's first press he recalls the blades still in the air — the chain
   // stays honest, and no unanswerable shuriken flies while every press
@@ -2074,7 +2122,7 @@ const BOSS_BEHAVIOR = {
         r.enemies.push({
           kind: 'proj', id: r.nextId++, owner: 0, fromBoss: true, side: b.side,
           dist: b.dist, projSpeed: ENEMY_TYPES.thrower.projSpeed * projSpeedMult(sm) * jamProjMult(s),
-          parries: n, // how many times HE will bat this one's return back
+          parries: Math.min(n, ARMORER_RALLY_CAP), // how many times HE will bat this one's return back
         });
         ev.push({ type: 'bossThrow', side: b.side, dist: b.dist, rally: n });
       }
@@ -2274,7 +2322,7 @@ function resolveQte(s, b, side, rg) {
       s.meta.stats.bossKills++;
       r.score += BOSS_SCORE * r.act;
       r.credits += Math.round(BOSS_CREDITS * r.act * creditMult(s));
-      return { type: 'bossDead', side, dist };
+      return { type: 'bossDead', side, dist, kind: b.kind };
     }
     // phase broken: the chain comes down and he re-enters for the next one
     const summoned = abortChain(s, b, 'phase');
@@ -3007,6 +3055,7 @@ const Game = {
   tick, strike, buildWave, chooseImplant, rollOffers, rerollOffers, threatEta, skipWave, taintRun,
   // meta
   metaCost, buyMeta,
+  BLADES, bladeById, buyBlade, setBlade,
   fmt, rnd,
 };
 

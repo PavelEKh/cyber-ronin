@@ -455,6 +455,46 @@ body::after {
   backdrop-filter: none;
 }
 
+/* A short screen — a phone held sideways is ~360px tall — cannot hold the
+   menu as a column, and a main screen that scrolls fails the platforms'
+   rule (and the thumb). Under 460px the menu folds: no crest, no tagline,
+   no stats, a smaller title, the four roads in a 2×2 grid, and the
+   champion's frame yields — it lives on the boards too. Everything a player
+   can press stays on the first screen. */
+/* a laptop at 720 tall is a dozen pixels short of the full column: the gaps
+   tighten a little and the run tally under the credits steps aside first */
+@media (max-height: 760px) {
+  #screen-menu { gap: 12px; padding: 18px 16px; }
+  #screen-menu #menu-stats { display: none; }
+}
+/* 600-tall tablets and netbooks: the crest and the tagline go, the title shrinks */
+@media (max-height: 640px) {
+  #screen-menu { gap: 10px; padding: 12px 16px; }
+  #screen-menu #menu-crest, #screen-menu .subtitle { display: none; }
+  #screen-menu #game-title { font-size: clamp(36px, 7vw, 64px); }
+}
+@media (max-height: 460px) {
+  #screen-menu { gap: 8px; padding: 8px 16px 26px; }
+  #screen-menu #menu-crest, #screen-menu .subtitle, #screen-menu #menu-stats,
+  #screen-menu #menu-champ { display: none; }
+  #screen-menu #game-title { font-size: clamp(28px, 6vw, 40px); letter-spacing: 5px; }
+  #screen-menu .menu-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 8px;
+    margin-top: 0;
+    width: min(520px, 94vw);
+  }
+  #screen-menu .way-row, #screen-menu #way-hint { grid-column: 1 / -1; }
+  #screen-menu .way-row { height: 30px; margin-bottom: 0; font-size: 11px; }
+  #screen-menu #way-hint { margin: 0 0 2px; font-size: 10px; line-height: 1.25; }
+  #screen-menu .cyber-btn { min-width: 0; padding: 8px 12px; font-size: 13px; letter-spacing: 2px; }
+  #screen-menu #menu-icons { margin-top: 2px; gap: 6px; }
+  #screen-menu .icon-btn { min-width: 58px; padding: 5px 6px 4px; }
+  #screen-menu .icon-btn .ico { font-size: 16px; }
+  #screen-menu #menu-credits { font-size: 13px; }
+}
+
 /* The "katana cut" logo: pure text+CSS — localized by swapping the string */
 #game-title {
   position: relative;
@@ -982,9 +1022,9 @@ button.pad-focus, input.pad-focus {
   color: var(--text);
   font-size: 13px;
 }
-#gfx-tabs, #calm-tabs { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+#gfx-tabs, #calm-tabs, #fps-tabs { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
 /* the base .cyber-btn min-width would stack the four tiers one per line */
-#gfx-tabs .cyber-btn.mini, #calm-tabs .cyber-btn.mini { min-width: 0; flex: 1 1 auto; }
+#gfx-tabs .cyber-btn.mini, #calm-tabs .cyber-btn.mini, #fps-tabs .cyber-btn.mini { min-width: 0; flex: 1 1 auto; }
 
 /* Calm mode: the two purely decorative CSS strobes go still. Signal blinks
    (last armor pip, charged execute) stay — they carry information, and their
@@ -1114,6 +1154,28 @@ input[type="range"]::-moz-range-thumb {
 .shop-row .buy:hover:not(:disabled) { background: rgba(255, 180, 45, 0.12); box-shadow: 0 0 14px rgba(255, 180, 45, 0.3); }
 .shop-row .buy:disabled { opacity: 0.35; cursor: default; }
 .shop-row .buy.maxed { color: var(--green); border-color: rgba(45, 255, 143, 0.4); }
+
+/* The blade rack: a section head and color swatches in place of icons */
+.shop-head {
+  margin-top: 8px;
+  color: var(--dim);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-align: center;
+}
+.blade-swatch {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  vertical-align: middle;
+}
+.blade-swatch.blade-ion {
+  background: conic-gradient(#26d6ff, #ff2d78, #ffb42d, #2dff8f, #26d6ff);
+  opacity: 0.85;
+}
 
 /* ============ Trophies ============ */
 
@@ -1256,3 +1318,19 @@ input[type="range"]::-moz-range-thumb {
 }
 #cine.on #cine-text { opacity: 1; }
 body.cinema #hud { opacity: 0; transition: opacity 0.4s; }
+
+/* UI icons — the thin neon line of the street's signs (style A): cyan stroke
+   with a soft glow, one pink detail (.acc). Symbols live in #icon-sprite. */
+.ic { width: 22px; height: 22px; overflow: visible; display: block;
+  fill: none; stroke: var(--cyan); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+  --ic-acc: var(--pink);
+  filter: drop-shadow(0 0 2px rgba(38, 214, 255, 0.8)); }
+.icon-btn .ico .ic { margin: -1px 0; }
+.cyber-btn .ic { display: inline-block; width: 19px; height: 19px; vertical-align: -4px; margin-right: 8px; }
+/* list icons drawn from the sprite take the size the emoji had */
+.implant-card .icon .ic { width: 40px; height: 40px; margin: 0 auto; stroke-width: 1.4; }
+.shop-row .icon .ic { width: 28px; height: 28px; }
+.ach-row .icon .ic { width: 26px; height: 26px; stroke: var(--gold); --ic-acc: var(--pink); }
+.log-row .icon .ic { width: 24px; height: 24px; }
+#hud-mut-icon .ic, .brief-title .ic, #toast .ic { display: inline-block; width: 1.25em; height: 1.25em; vertical-align: -0.28em; }
+#toast .ic { stroke: var(--gold); }

@@ -22,7 +22,23 @@ const Board = (() => {
 
   const enabled = () => !!BOARD_URL;
 
+  // AbortSignal.timeout arrived in Safari 16 — without it a board request
+  // simply has no deadline, which beats a TypeError that kills the whole
+  // board on an older iPhone
+  const timeoutSignal = ms => (typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined);
+
+  // The platform's identity, when a shell has one (ui/yandex.js: the signed-in
+  // player's id hashed to hex16, his profile name). It replaces the anonymous
+  // pid — records survive a wiped localStorage and follow the player between
+  // devices — but never a name the player typed here himself.
+  let platform = null; // { pid: hex16, name: '' | profile name }
+  function setIdentity(id) {
+    platform = id && /^[0-9a-f]{16}$/.test(id.pid || '') ? id : null;
+    champCache = null; // «me» on the champion's frame may have changed hands
+  }
+
   function pid() {
+    if (platform) return platform.pid;
     let v = localStorage.getItem(PID_KEY);
     if (!/^[0-9a-f]{16}$/.test(v || '')) {
       const bytes = crypto.getRandomValues(new Uint8Array(8));
@@ -34,7 +50,8 @@ const Board = (() => {
 
   function getName() {
     const saved = (localStorage.getItem(NAME_KEY) || '').trim();
-    return saved || L('ронин-', 'ronin-') + pid().slice(0, 4);
+    const given = platform ? (platform.name || '').trim().slice(0, NAME_MAX) : '';
+    return saved || given || L('ронин-', 'ronin-') + pid().slice(0, 4);
   }
 
   function setName(name) {
@@ -47,7 +64,7 @@ const Board = (() => {
     const url = `${BOARD_URL}/board/${key}` + (method === 'GET' ? `?pid=${pid()}` : '');
     const res = await fetch(url, {
       method,
-      signal: AbortSignal.timeout(5000),
+      signal: timeoutSignal(5000),
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -167,7 +184,7 @@ const Board = (() => {
   async function watchGhost(key, row, btn) {
     btn.disabled = true;
     try {
-      const res = await fetch(`${BOARD_URL}/replay/${key}/${row.tag}`, { signal: AbortSignal.timeout(8000) });
+      const res = await fetch(`${BOARD_URL}/replay/${key}/${row.tag}`, { signal: timeoutSignal(8000) });
       if (!res.ok) throw new Error(`replay ${res.status}`);
       const rec = Game.unpackRec((await res.json()).replay);
       if (!rec || rec.v !== Game.REPLAY_EPOCH) {
@@ -339,5 +356,5 @@ const Board = (() => {
     }
   }
 
-  return { enabled, wayKey, isStanceKey, runEnd, submitQuiet, view, champ, getName, setName };
+  return { enabled, wayKey, isStanceKey, runEnd, submitQuiet, view, champ, getName, setName, setIdentity };
 })();

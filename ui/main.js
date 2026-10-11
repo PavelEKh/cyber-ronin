@@ -66,6 +66,8 @@ const STR = {
   setCalm:    ['СПОКОЙНЫЙ РЕЖИМ', 'CALM MODE'],
   calmOn:     ['ВКЛ', 'ON'],
   calmOff:    ['ВЫКЛ', 'OFF'],
+  setFps:     ['СЧЁТЧИК КАДРОВ', 'FPS COUNTER'],
+  setFpsHint: ['цифра в углу для тех, кто следит за плавностью', 'a number in the corner, for those who watch the smoothness'],
   setCalmHint: ['без тряски камеры, вспышек и зерна; авто слушает системное «меньше движения»',
                 'no camera shake, flashes or grain; auto follows the system’s "reduce motion"'],
 };
@@ -144,14 +146,14 @@ const RESET_ARM_TIME = 4000; // ms the armed state lasts before it disarms itsel
 // through L() so overlay packs translate it per paragraph — a paragraph the
 // pack misses falls back to English alone, not the whole page.
 const HELP_PARAGRAPHS = [
-  [`<b>← A</b> — удар влево · <b>D →</b> — удар вправо. Мышью: <b>ЛКМ</b> — влево, <b>ПКМ</b> — вправо. На сенсоре — тап по половине экрана. <b>Геймпад</b>: крестовина, бамперы, триггеры или стик — удары, <b>START</b> — пауза.`,
-   `<b>← A</b> — strike left · <b>D →</b> — strike right. Mouse: <b>left button</b> — left, <b>right button</b> — right. On touch — tap the screen half. <b>Gamepad</b>: d-pad, bumpers, triggers or a stick flick — strikes, <b>START</b> — pause.`],
+  [`<b>← A</b> — удар влево · <b>D →</b> — удар вправо. Мышью: <b>ЛКМ</b> — влево, <b>ПКМ</b> — вправо. На сенсоре — тап по половине экрана. <b>Геймпад</b>: крестовина, бамперы, триггеры или стик — удары, <b>START</b> — пауза. <b>Удар в обе стороны</b> (для близнецов): <b>Enter</b> или <b>OK</b> на пульте ТВ, средняя кнопка мыши, <b>Y</b> на геймпаде, на сенсоре — тап двумя пальцами.`,
+   `<b>← A</b> — strike left · <b>D →</b> — strike right. Mouse: <b>left button</b> — left, <b>right button</b> — right. On touch — tap the screen half. <b>Gamepad</b>: d-pad, bumpers, triggers or a stick flick — strikes, <b>START</b> — pause. <b>Both sides at once</b> (for twins): <b>Enter</b> or <b>OK</b> on a TV remote, the middle mouse button, <b>Y</b> on a gamepad, a two-finger tap on touch.`],
   [`Бей врага, только когда он <b>в зоне досягаемости</b> (метки на земле). Удар по воздуху — короткий <b>стан</b>, сброс комбо, и пока ты висишь, <b>толпа ускоряется</b>.`,
    `Hit an enemy only when it is <b>within reach</b> (ground markers). Swinging at air — a short <b>stun</b>, a combo reset, and while you hang the <b>crowd speeds up</b>.`],
-  [`<b>Дрон</b> умирает с одного удара. <b>Панк</b> после удара перелетает на другую сторону — добей там. <b>Щитовик</b> держит три удара. <b>Метатель</b> кидает сюрикен — отбей его обратно.`,
-   `A <b>drone</b> dies in one hit. A <b>punk</b> flips to the other side after a hit — finish him there. A <b>shielder</b> takes three hits. A <b>thrower</b> hurls a shuriken — deflect it back.`],
-  [`<b>«Путь трёх стоек»</b> — сложный путь. Со второго акта у клинка открываются три <b>стойки</b> — переключай их цифрами 1·2·3, W/S или пробелом (на геймпаде A, на телефоне — полоса по центру экрана). <b>КЛИНОК</b> режет точно и несёт вперёд, <b>ВИХРЬ</b> бьёт всех в зоне разом, но платит одним звеном серии, <b>ПРОБОЙ</b> вкладывает двойной вес в одного. Каждого из толпы берут только две стойки из трёх: дрона не достаёт пробой, панк ныряет под вихрь, щитовика не берёт клинок. Неверная стойка не убивает — она просто отталкивает, и ты теряешь темп.`,
-   `The <b>Way of Three Stances</b> is the harder road. From the second act on the blade holds three <b>stances</b> — pick them with 1·2·3, cycle with W/S or Space (A on a pad, the middle strip on a phone). <b>BLADE</b> cuts precisely and carries you forward, <b>SWEEP</b> takes everyone in reach at once but pays a single link of the streak, <b>PIERCE</b> puts double weight into one body. Each of the crowd answers to only two of the three: the thrust goes past a drone, a punk ducks the arc, a plate turns the cut aside. The wrong stance does not kill — it only shoves, and the tempo is what you lose.`],
+  [`<b>Дрон</b> умирает с одного удара. <b>Трейсер</b> после удара перемахивает на другую сторону — добей там. <b>Щитовик</b> держит три удара. <b>Метатель</b> кидает сюрикен — отбей его обратно.`,
+   `A <b>drone</b> dies in one hit. A <b>tracer</b> vaults to the other side after a hit — finish him there. A <b>shielder</b> takes three hits. A <b>thrower</b> hurls a shuriken — deflect it back.`],
+  [`<b>«Путь трёх стоек»</b> — сложный путь. Со второго акта у клинка открываются три <b>стойки</b> — переключай их цифрами 1·2·3, W/S или пробелом (на геймпаде A, на телефоне — полоса по центру экрана). <b>КЛИНОК</b> режет точно и несёт вперёд, <b>ВИХРЬ</b> бьёт всех в зоне разом, но платит одним звеном серии, <b>ПРОБОЙ</b> вкладывает двойной вес в одного. Каждого из толпы берут только две стойки из трёх: дрона не достаёт пробой, трейсер ныряет под вихрь, щитовика не берёт клинок. Неверная стойка не убивает — она просто отталкивает, и ты теряешь темп.`,
+   `The <b>Way of Three Stances</b> is the harder road. From the second act on the blade holds three <b>stances</b> — pick them with 1·2·3, cycle with W/S or Space (A on a pad, the middle strip on a phone). <b>BLADE</b> cuts precisely and carries you forward, <b>SWEEP</b> takes everyone in reach at once but pays a single link of the streak, <b>PIERCE</b> puts double weight into one body. Each of the crowd answers to only two of the three: the thrust goes past a drone, a tracer ducks the arc, a plate turns the cut aside. The wrong stance does not kill — it only shoves, and the tempo is what you lose.`],
   [`Элита ломает ритм: <b>фехтовальщик</b> парирует — жди зелёного окна; <b>маятник</b> дважды перелетает дорогу — останови его третьим ударом; <b>близнецы</b> умирают только от одновременного удара обеих кнопок.`,
    `Elites break the rhythm: the <b>fencer</b> parries — wait for the green window; the <b>pendulum</b> crosses the road twice — stop him with the third hit; the <b>twins</b> die only to both buttons at once.`],
   [`<b>Мимик</b> выглядит как дрон, но у зоны вспыхивает истинная суть: <b>плотный</b> — настоящий, бей; <b>полый и холодный</b> — призрак, <b>не бей</b> (сам растает, а удар сквозь него — промах). Проверяет концентрацию, а не привычку.`,
@@ -185,12 +187,31 @@ function applyLang() {
   }
   for (const el of document.querySelectorAll('[data-i18n]')) {
     const pair = STR[el.dataset.i18n];
-    if (pair) el.textContent = L(...pair); // L consults the overlay pack, falls back to English
+    if (pair) iconText(el, L(...pair)); // L consults the overlay pack, falls back to English
   }
   const logo = en ? 'CYBER RONIN' : 'КИБЕР-РОНИН';
   for (const el of document.querySelectorAll('#game-title .logo-half')) el.textContent = logo;
   $('help-body').innerHTML = HELP_PARAGRAPHS.map(pr => `<p>${L(...pr)}</p>`).join('');
   $('lang-select').value = lang;
+}
+
+// The strings keep their emoji (every language pack carries them, and they
+// still read as plain text anywhere a string ends up outside the DOM). On
+// screen a leading glyph that has an icon in #icon-sprite is drawn as that icon
+// instead — the neon line of the UI set, the same on every platform.
+const ICON_OF = { '⚔': 'start', '🗓': 'daily', '🌙': 'moon', '♾': 'endless', '🔩': 'shop', '🏆': 'ach',
+  '📓': 'log', '🏅': 'board', '❔': 'help', '⚙': 'settings', '🚪': 'exit', '🎲': 'dice' };
+const iconSvg = id => `<svg class="ic"><use href="#i-${id}"/></svg>`;
+// A list item's icon: its own symbol (i-<group>-<id>) when the sprite has one,
+// the emoji it carries in game.js otherwise — a new item without art still shows.
+const itemIcon = (group, it) => document.getElementById(`i-${group}-${it.id}`) ? iconSvg(`${group}-${it.id}`) : it.icon;
+function iconText(el, str) {
+  const m = /^(\S+)\s+([\s\S]*)$/.exec(str);
+  const id = m && ICON_OF[m[1].replace(/\uFE0F/g, '')];
+  if (!id) { el.textContent = str; return; }
+  el.textContent = '';
+  el.insertAdjacentHTML('afterbegin', iconSvg(id));
+  el.append(m[2]);
 }
 
 // ---------- Screens ----------
@@ -364,7 +385,7 @@ function renderShop() {
       ? `<div class="way-note">${L('только на пути трёх стоек', 'sold on the way of three stances only')}</div>`
       : '';
     row.innerHTML =
-      `<div class="icon">${m.icon}</div>` +
+      `<div class="icon">${itemIcon('mt', m)}</div>` +
       `<div class="body"><div class="name">${Game.T(m, 'name')}</div><div class="desc">${Game.T(m, 'desc')}</div>${note}</div>` +
       `<div class="lvl">${'▮'.repeat(lvl)}${'▯'.repeat(m.cap - lvl)}</div>` +
       `<button class="buy${maxed ? ' maxed' : ''}" ${maxed || offWay || state.meta.credits < cost ? 'disabled' : ''}>` +
@@ -375,6 +396,53 @@ function renderShop() {
       row.querySelector('.buy').addEventListener('click', () => {
         if (Game.buyMeta(state, m.id)) {
           Sound.ensure(); Sound.sfx('buy');
+          saveState();
+          renderShop();
+        }
+      });
+    }
+    list.appendChild(row);
+  }
+  renderBlades(list);
+}
+
+// The equipped palette, straight from meta to the renderer. 'ion' (core:
+// null) hands the brush back to the act.
+function applyBlade() {
+  const b = Game.bladeById(state.meta.blade);
+  Scene.setBlade(b.core ? b : null);
+  Sprites.retint(b.core || null); // the sprite's own steel takes the color too
+}
+
+// The blade rack under the firmware: palettes are bought once and worn — the
+// swatch is the icon, the equipped one says so instead of selling itself.
+function renderBlades(list) {
+  const head = document.createElement('div');
+  head.className = 'shop-head';
+  head.textContent = L('ЦВЕТ КЛИНКА', 'BLADE COLOR');
+  list.appendChild(head);
+  for (const b of Game.BLADES) {
+    const owned = !b.cost || !!state.meta.blades[b.id];
+    const worn = state.meta.blade === b.id;
+    const row = document.createElement('div');
+    row.className = 'shop-row';
+    const sw = b.core
+      ? `<span class="blade-swatch" style="background:${b.core};box-shadow:0 0 8px ${b.glow}"></span>`
+      : `<span class="blade-swatch blade-ion"></span>`;
+    const desc = b.core
+      ? L('след, ореол и клинок — в этот цвет', 'the arc, the halo and the edge — in this color')
+      : L('цвет акта ведёт клинок, как всегда', 'the act paints the blade, as it always has');
+    row.innerHTML =
+      `<div class="icon">${sw}</div>` +
+      `<div class="body"><div class="name">${Game.T(b, 'name')}</div><div class="desc">${desc}</div></div>` +
+      `<button class="buy${worn ? ' maxed' : ''}" ${worn || (!owned && state.meta.credits < b.cost) ? 'disabled' : ''}>` +
+      `${worn ? L('НАДЕТ', 'WORN') : owned ? L('НАДЕТЬ', 'WEAR') : Game.fmt(b.cost) + ' ㋕'}</button>`;
+    if (!worn) {
+      row.querySelector('.buy').addEventListener('click', () => {
+        const ok = owned ? Game.setBlade(state, b.id) : Game.buyBlade(state, b.id);
+        if (ok) {
+          Sound.ensure(); Sound.sfx('buy');
+          applyBlade();
           saveState();
           renderShop();
         }
@@ -395,7 +463,7 @@ function renderAch() {
     const row = document.createElement('div');
     row.className = 'ach-row' + (got ? '' : ' locked');
     row.innerHTML =
-      `<div class="icon">${a.icon}</div>` +
+      `<div class="icon">${itemIcon('ac', a)}</div>` +
       `<div class="body"><div class="name">${Game.T(a, 'name')}</div><div class="desc">${Game.T(a, 'desc')}</div></div>` +
       `<div class="prog">${got ? '✓ +' + a.reward + ' ㋕' : Game.fmt(v) + '/' + Game.fmt(a.target)}</div>`;
     list.appendChild(row);
@@ -416,7 +484,7 @@ function renderLog() {
     const row = document.createElement('div');
     row.className = 'log-row' + (got ? '' : ' locked');
     row.innerHTML = got
-      ? `<div class="icon">${e.icon}</div>` +
+      ? `<div class="icon">${itemIcon('lg', e)}</div>` +
         `<div class="body"><div class="name">${Game.T(e, 'name')}</div>` +
         `<div class="text">${Game.T(e, 'text')}</div></div>`
       : `<div class="icon">▮</div>` +
@@ -442,7 +510,7 @@ function renderChoice() {
     const card = document.createElement('div');
     card.className = 'implant-card';
     card.innerHTML =
-      `<span class="icon">${im.icon}</span>` +
+      `<span class="icon">${itemIcon('im', im)}</span>` +
       `<div class="name">${Game.T(im, 'name')}</div>` +
       `<div class="desc">${Game.T(im, 'desc')}</div>` +
       (owned ? `<div class="owned">${L('установлено', 'installed')}: ${owned}/${im.stack}</div>` : '') +
@@ -454,7 +522,7 @@ function renderChoice() {
   const left = Game.metaLvl(state, 'mreroll') - (r.rerollsUsed || 0);
   const rb = $('btn-reroll');
   rb.classList.toggle('hidden', left <= 0);
-  if (left > 0) rb.textContent = F('🎲 ПЕРЕСОБРАТЬ · {n} (R)', '🎲 REROLL · {n} (R)', { n: left });
+  if (left > 0) iconText(rb, F('🎲 ПЕРЕСОБРАТЬ · {n} (R)', '🎲 REROLL · {n} (R)', { n: left }));
 }
 
 function rerollChoice() {
@@ -849,7 +917,7 @@ function updateHud() {
     const mut = r.mutator ? Game.MUTATORS.find(x => x.id === r.mutator) : null;
     el.classList.toggle('hidden', !mut);
     if (mut) {
-      $('hud-mut-icon').textContent = mut.icon;
+      $('hud-mut-icon').innerHTML = itemIcon('mu', mut);
       $('hud-mut-name').textContent = Game.T(mut, 'name');
     }
   }
@@ -969,7 +1037,18 @@ function replayWatchEnd() {
   }
 }
 
-function startGame(mode) {
+// A run ended and the player moves on — to the next run or the menu. The
+// platform may put a break here (the Yandex interstitial); every other build
+// goes straight through. Only off the dead/victory screens, never a cold start
+// from the menu, and never mid-run.
+function afterRun(go) {
+  if (activeScreen === 'dead' || activeScreen === 'victory') Yandex.interstitial(go);
+  else go();
+}
+
+function startGame(mode) { afterRun(() => launchRun(mode)); }
+
+function launchRun(mode) {
   Sound.ensure();
   if (mode === 'daily') Game.startDaily(state, todayStr());
   else if (mode === 'monthly') Game.startMonthly(state, monthStr());
@@ -1337,7 +1416,7 @@ function handleStrikeEvent(ev) {
       break;
     case 'bossDead':
       Scene.slash(ev.side, true);
-      Scene.corpse(ev.side, ev.dist, 'boss', 1.8);
+      Scene.corpse(ev.side, ev.dist, Scene.bossSpriteType(ev.kind), 1.8); // his own body comes apart
       Scene.burst(ev.side, ev.dist, '#ffffff', 40);
       Scene.burst(ev.side, ev.dist, '#ff3b3b', 20);
       Scene.floatText(L('СТРАЖ ПАЛ', 'WARDEN DOWN'), ev.side, ev.dist, '#ffb42d');
@@ -1468,10 +1547,10 @@ const BOSS_TIPS = [
 // Fallback advice when nothing special is going on — the fundamentals.
 const BASE_TIPS = {
   lines: ['Бей только когда враг <b>в зоне досягаемости</b> — метки на земле. Удар по воздуху даёт стан, сбрасывает комбо и <b>разгоняет толпу</b> на время стана — промах отнимает и время, и дистанцию.',
-          '<b>Панк</b> после удара перелетает на другую сторону, <b>щитовик</b> держит три удара, <b>метатель</b> кидает сюрикен — его можно отбить тем же ударом.',
+          '<b>Трейсер</b> после удара перемахивает на другую сторону, <b>щитовик</b> держит три удара, <b>метатель</b> кидает сюрикен — его можно отбить тем же ударом.',
           'Элита ломает ритм: <b>фехтовальщик</b> — только в зелёное окно, <b>маятник</b> — дважды перелетает, третий его останавливает, <b>близнецы</b> — обе кнопки одновременно.'],
   en: { lines: ['Strike only when an enemy is <b>within reach</b> — the ground markers show it. Swinging at air stuns you, resets the combo and <b>speeds the crowd up</b> for as long as the stun — a miss costs both time and ground.',
-                'A <b>punk</b> flips to the other side after a hit, a <b>shielder</b> takes three, a <b>thrower</b> hurls a shuriken — the same strike deflects it.',
+                'A <b>tracer</b> vaults to the other side after a hit, a <b>shielder</b> takes three, a <b>thrower</b> hurls a shuriken — the same strike deflects it.',
                 'Elites break the rhythm: the <b>fencer</b> only in the green window, the <b>pendulum</b> crosses twice and falls to the third, the <b>twins</b> both buttons at once.'] },
 };
 
@@ -1495,7 +1574,7 @@ function renderPauseBrief() {
     const mut = Game.MUTATORS.find(x => x.id === r.mutator);
     el.classList.add('mut');
     tag = L('МУТАТОР ВОЛНЫ', 'WAVE MUTATOR');
-    title = `${mut.icon} ${Game.T(mut, 'name')}`;
+    title = `${itemIcon('mu', mut)} ${Game.T(mut, 'name')}`;
     src = { lines: [Game.T(mut, 'desc'), Game.T(mut, 'tip')] };
     const pct = Math.round((Game.mutCredit(r) - 1) * 100);
     reward = F('награда за убийства на этой волне +{n}%', 'kills on this wave pay +{n}% credits', { n: pct });
@@ -1790,6 +1869,28 @@ function doStrike(side) {
   updateHud();
 }
 
+// Both sides in one press — the chord as a single button (Enter / a TV remote's
+// OK, the middle mouse button, the pad's Y). Two presses at the same instant:
+// for a twin pair that is a chord with zero gap; for anything else it is
+// exactly what a very fast ←→ already does, so the button grants no new power,
+// it only removes the two-thumbs-in-180-ms problem (a remote has one thumb on
+// the arrows, and an IR remote sends the second code ~0.1 s after the first).
+// The nearer side swings first, so a hit is never lost to the empty side's stun.
+function doStrikeBoth() {
+  if (paused || replay || state.phase !== 'combat') return;
+  if (resumeT > 0) return;
+  Sound.ensure();
+  const near = side => {
+    let d = Infinity;
+    for (const e of state.run.enemies) if (!e.dead && e.side === side && e.dist < d) d = e.dist;
+    return d;
+  };
+  const first = near(1) < near(-1) ? 1 : -1;
+  handleStrikeEvent(Game.strike(state, first));
+  if (state.phase === 'combat') handleStrikeEvent(Game.strike(state, -first));
+  updateHud();
+}
+
 // The hidden skip (Ctrl+Shift+K). Deliberately undocumented in the help screen,
 // but never silent: the banner and the HUD say the run stopped counting.
 function doSkipWave() {
@@ -1847,9 +1948,22 @@ function pressEscape() {
   else if (activeScreen === 'ach' || activeScreen === 'log' || activeScreen === 'board') showScreen('menu');
 }
 
+// TV browsers (Tizen, webOS, set-top boxes) often hand remote keys over with an
+// empty e.code and only the legacy keyCode; Back has its own codes per vendor.
+const TV_KEYS = { 37: 'ArrowLeft', 39: 'ArrowRight', 38: 'ArrowUp', 40: 'ArrowDown',
+  13: 'Enter', 8: 'Backspace', 10009: 'Escape', 461: 'Escape' };
+// On a screen the arrows and Enter drive the pad's button cursor (padNav*), so a
+// TV remote — arrows, OK, Back and nothing else — reaches every menu.
+const SCREEN_KEYS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down',
+  Enter: 'confirm', NumpadEnter: 'confirm' };
+// a focused text field or dropdown owns its keys; buttons and sliders do not —
+// the cursor drives those itself (and Enter's native click is suppressed below)
+const ownsKeys = el => !!el && (el.tagName === 'SELECT' || el.tagName === 'TEXTAREA' ||
+  (el.tagName === 'INPUT' && el.type !== 'range'));
+
 document.addEventListener('keydown', e => {
   if (e.repeat) return;
-  const code = e.code;
+  const code = e.code || TV_KEYS[e.keyCode] || '';
   if (activeScreen === 'choice' && ['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(code)) {
     choose(Number(code.slice(-1)) - 1);
     return;
@@ -1857,7 +1971,17 @@ document.addEventListener('keydown', e => {
   if (activeScreen === 'choice' && code === 'KeyR') { rerollChoice(); return; }
   if (cinema) { endCinema(); return; } // any key skips the travelling shot
   if (replay && code === 'Space') { cycleReplaySpeed(); return; }
-  if (code === 'Escape') { pressEscape(); return; }
+  if (code === 'Escape' || (code === 'Backspace' && !ownsKeys(document.activeElement))) { pressEscape(); return; }
+  if (activeScreen && activeScreen !== 'choice' && !replay && SCREEN_KEYS[code] && !ownsKeys(document.activeElement)) {
+    e.preventDefault(); // no page scroll under the arrows, no second (native) click on Enter
+    // a button the mouse left focused is where Enter should land
+    const el = document.activeElement;
+    if (SCREEN_KEYS[code] === 'confirm' && el && el.tagName === 'BUTTON' && el !== padFocus &&
+        padNavList().includes(el)) padFocusSet(el);
+    handlePadAction(SCREEN_KEYS[code]);
+    return;
+  }
+  if (activeScreen === 'choice' && SCREEN_KEYS[code]) { e.preventDefault(); handlePadAction(SCREEN_KEYS[code]); return; }
   // stances: the digits pick one outright, Space walks the ring for hands that
   // would rather keep a thumb on one key. The whole block only exists in
   // combat: an unguarded `return` here once swallowed Space on the menu and
@@ -1877,6 +2001,7 @@ document.addEventListener('keydown', e => {
   }
   if (code === 'ArrowLeft' || code === 'KeyA') doStrike(-1);
   else if (code === 'ArrowRight' || code === 'KeyD') doStrike(1);
+  else if ((code === 'Enter' || code === 'NumpadEnter') && state.phase === 'combat' && !activeScreen) doStrikeBoth();
   else if ((code === 'Enter' || code === 'Space') && activeScreen === 'menu') startGame();
 });
 
@@ -1893,7 +2018,8 @@ $('scene').addEventListener('pointerdown', e => {
   if (e.pointerType === 'mouse') {
     if (e.button === 0) side = -1;
     else if (e.button === 2) side = 1;
-    else return; // middle / extra buttons do nothing
+    else if (e.button === 1) { e.preventDefault(); doStrikeBoth(); return; } // the wheel: both sides
+    else return; // extra buttons do nothing
   } else {
     side = e.clientX < window.innerWidth / 2 ? -1 : 1;
   }
@@ -1997,12 +2123,13 @@ function handlePadAction(a) {
   if (a === 'left') doStrike(-1);
   else if (a === 'right') doStrike(1);
   else if (a === 'confirm' || a === 'down') doStanceCycle(1); // A / d-pad down walks the ring
-  else if (a === 'alt' || a === 'up') doStanceCycle(-1);
+  else if (a === 'alt') doStrikeBoth();                     // Y: both sides at once
+  else if (a === 'up') doStanceCycle(-1);
 }
 
 window.addEventListener('gamepadconnected', () => {
   popBanner('🎮', L('ГЕЙМПАД', 'GAMEPAD'),
-    L('крестовина или бамперы — удары · START — пауза', 'd-pad or bumpers strike · START pauses'));
+    L('крестовина или бамперы — удары · Y — в обе стороны · START — пауза', 'd-pad or bumpers strike · Y both sides · START pauses'));
 });
 
 // ---------- The way ----------
@@ -2094,7 +2221,13 @@ function renderSettings() {
     b.classList.toggle('primary', b.dataset.gfx === settings.gfx);
   for (const b of document.querySelectorAll('#calm-tabs button'))
     b.classList.toggle('primary', b.dataset.calm === settings.calm);
+  for (const b of document.querySelectorAll('#fps-tabs button'))
+    b.classList.toggle('primary', (b.dataset.fps === 'on') === settings.fps);
 }
+
+// The frame counter is a diagnostic, not a HUD element: off unless asked for,
+// so a store page and a first launch never show a debug-looking number.
+function applyFps() { $('fps').classList.toggle('hidden', !settings.fps); }
 
 // ---------- Calm mode ----------
 // One switch for players whom motion hurts: no camera shake, no full-screen
@@ -2147,6 +2280,15 @@ for (const b of document.querySelectorAll('#calm-tabs button')) {
     renderSettings();
   });
 }
+for (const b of document.querySelectorAll('#fps-tabs button')) {
+  b.addEventListener('click', () => {
+    settings.fps = b.dataset.fps === 'on';
+    applyFps();
+    saveSettings();
+    Sound.sfx('ui');
+    renderSettings();
+  });
+}
 $('btn-settings').addEventListener('click', () => showScreen('settings'));
 $('btn-set-back').addEventListener('click', () => showScreen('menu'));
 
@@ -2191,6 +2333,7 @@ $('btn-reset').addEventListener('click', () => {
   resetArmed = false;
   Game.resetProgress(state);
   clearSave();      // drop the stored save, do not rewrite it
+  applyBlade();     // the wiped meta wears the stock edge again
   hudCombo = -1; hudArmor = ''; hudMut = '';
   $('hud').classList.add('hidden');
   Sound.stopMusic();
@@ -2224,8 +2367,9 @@ $('lang-select').addEventListener('pointerdown', e => e.stopPropagation());
 $('lang-select').addEventListener('keydown', e => e.stopPropagation());
 $('btn-ach-back').addEventListener('click', () => showScreen('menu'));
 $('btn-help-back').addEventListener('click', () => showScreen('menu'));
-$('btn-dead-menu').addEventListener('click', () => { state.run = null; state.phase = 'menu'; showScreen('menu'); $('hud').classList.add('hidden'); });
-$('btn-victory-menu').addEventListener('click', () => { state.run = null; state.phase = 'menu'; showScreen('menu'); $('hud').classList.add('hidden'); });
+const endToMenu = () => afterRun(() => { state.run = null; state.phase = 'menu'; showScreen('menu'); $('hud').classList.add('hidden'); });
+$('btn-dead-menu').addEventListener('click', endToMenu);
+$('btn-victory-menu').addEventListener('click', endToMenu);
 $('btn-resume').addEventListener('click', resumeGame);
 $('btn-quit').addEventListener('click', quitToMenu);
 
@@ -2269,8 +2413,8 @@ function pumpToasts() {
   const el = $('toast');
   // a journal fragment has no reward — it is announced, not awarded
   el.innerHTML = a.reward === undefined
-    ? `📓 <b>${Game.T(a, 'name')}</b> · ${L('запись открыта', 'entry recovered')}`
-    : `🏆 <b>${Game.T(a, 'name')}</b> · +${a.reward} ㋕`;
+    ? `${itemIcon('lg', a)} <b>${Game.T(a, 'name')}</b> · ${L('запись открыта', 'entry recovered')}`
+    : `${itemIcon('ac', a)} <b>${Game.T(a, 'name')}</b> · +${a.reward} ㋕`;
   el.classList.remove('hidden');
   el.style.animation = 'none';
   void el.offsetWidth;
@@ -2361,6 +2505,8 @@ function loop(t) {
   lastT = t;
   fpsFrame(frameGap); // before the pause bail-out: the counter stays live on pause
   Debug.frame(rawDt);
+  // the platform hears the truth every frame: fighting, or not (dedupes inside)
+  Yandex.gameplay(state.phase === 'combat' && !paused && !replay);
   // pad presses must land even on pause and menu screens — START unpauses,
   // A starts a run — so the poll lives above the bail-out
   for (const a of Pad.poll()) handlePadAction(a);
@@ -2472,6 +2618,7 @@ function loop(t) {
   // The sub-step remainder: how far between the last tick and the next the
   // frame lands. The renderer lerps pd→dist by it — on >60 Hz panels this is
   // what turns the 60 Hz sim quanta back into smooth motion.
+  Scene.setWarp(warpCur); // the stride keeps its cadence under the fast-forward
   Scene.render(state, dt, rawDt, Math.min(1, simAcc / Game.STEP));
 }
 
@@ -2487,11 +2634,13 @@ document.addEventListener('pointerdown', wakeMenuMusic);
 document.addEventListener('keydown', wakeMenuMusic);
 
 applyLang();
+applyBlade(); // the equipped palette paints the edge from the first frame
 // device settings take effect before the first frame is drawn or heard
 Sound.setFlag('musicVol', settings.musicVol);
 Sound.setFlag('sfxVol', settings.sfxVol);
 Scene.setQuality(settings.gfx);
 applyCalm();
+applyFps();
 $('game-version').textContent = 'v' + Game.VERSION;
 showScreen('menu');
 
@@ -2502,6 +2651,7 @@ const splashStart = performance.now();
   if ((Sprites.ready() && elapsed > 700) || elapsed > 2500) {
     $('splash').classList.add('gone');
     setTimeout(() => $('splash').remove(), 600);
+    Yandex.ready(); // the platform's «loaded»: the menu is under the finger
   } else setTimeout(hideSplash, 100);
 })();
 requestAnimationFrame(loop);
@@ -2509,7 +2659,8 @@ requestAnimationFrame(loop);
 // PWA: offline shell + install prompt. Only over http(s) — file:// (the smoke
 // test, the single-file dist a friend got) has no service workers, and a hosted
 // dist without sw.js just fails the fetch — both land in the silent catch.
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+// The Yandex build lives in a foreign iframe with no sw.js beside it — skip.
+if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.CR_YANDEX) {
   addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });

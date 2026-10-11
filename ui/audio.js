@@ -1501,6 +1501,14 @@ const Sound = (() => {
     return (g - (elapsed % g)) % g;
   }
 
+  // The whole context asleep or awake — a platform's "the window lost focus"
+  // (Yandex requires silence on blur). Distinct from pauseMusic: nothing is
+  // rescheduled, the timeline simply stops ticking and resumes where it was.
+  function suspend(on) {
+    if (!ctx) return;
+    try { (on ? ctx.suspend() : ctx.resume()).catch(() => {}); } catch (e) { /* closed context */ }
+  }
+
   return { ensure, sfx, note, setTier, rung, startMusic, stopMusic, transitionMusic, playingAct, setMenuAct, pauseMusic,
-           flags, setFlag, tier: musicTier, gridSec, duckMusic, dropMusic, setPeril, setDuel, setSpace };
+           flags, setFlag, tier: musicTier, gridSec, duckMusic, dropMusic, setPeril, setDuel, setSpace, suspend };
 })();
