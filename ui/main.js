@@ -67,6 +67,9 @@ const STR = {
   calmOn:     ['ВКЛ', 'ON'],
   calmOff:    ['ВЫКЛ', 'OFF'],
   setFps:     ['СЧЁТЧИК КАДРОВ', 'FPS COUNTER'],
+  setComboMusic: ['МУЗЫКА ОТ КОМБО', 'COMBO-DRIVEN MUSIC'],
+  setComboMusicHint: ['вкл — песня громче с серии 10, вокал с 25; выкл — песня акта звучит целиком, с вокалом',
+                      'on — the song swells at a 10 streak, the vocal joins at 25; off — the act’s whole song plays, vocal and all'],
   setFpsHint: ['цифра в углу для тех, кто следит за плавностью', 'a number in the corner, for those who watch the smoothness'],
   setCalmHint: ['без тряски камеры, вспышек и зерна; авто слушает системное «меньше движения»',
                 'no camera shake, flashes or grain; auto follows the system’s "reduce motion"'],
@@ -349,7 +352,8 @@ let boardBack = 0; // archive steps behind today: days on the daily tab, months 
 const BOARD_BACK_MAX = { daily: 90, monthly: 24 };
 
 function renderBoardScreen() {
-  const archival = boardTab === 'daily' || boardTab === 'monthly';
+  // the archive walker: our dated boards only — a platform's board spans all days (Board.archive)
+  const archival = (boardTab === 'daily' || boardTab === 'monthly') && Board.archive();
   const key = boardTab === 'daily' ? shiftDay(todayStr(), -boardBack)
     : boardTab === 'monthly' ? shiftMonth(monthStr(), -boardBack)
     : boardTab;
@@ -844,6 +848,7 @@ function updateHud() {
     Sound.setPeril(r.hp === 1);
     Scene.setPeril(r.hp === 1);
   }
+  Sound.setCombo(r.combo); // a recorded act: louder from 10, the vocal joins from 25
   if (r.combo !== hudCombo) {
     const grew = r.combo > hudCombo;
     hudCombo = r.combo;
@@ -855,7 +860,7 @@ function updateHud() {
     // breath of zoom and the streak's number floating over his head. The loudest
     // achievement of a run finally LOOKS different from an ordinary kill.
     if (grew && MILESTONES.includes(r.combo)) {
-      Sound.dropMusic(r.combo >= 50 ? 1.3 : 1);
+      Sound.dropMusic(r.combo >= 50 ? 1.3 : 1, r.combo);
       slowmo = Math.max(slowmo, 0.45); // the picture stretches with the sound
       Scene.flash('#ffd94d', 0.12);
       Scene.punch(0.03);
@@ -1304,7 +1309,7 @@ function handleStrikeEvent(ev) {
       Sound.sfx('twintouch', 1, sidePan(ev.side, ev.dist));
       // the chord window is 0.12s — too short to read, so the call to action goes
       // on the side still waiting, not on the one just struck
-      if (state.meta.stats.chords < Game.TEACH_CHORDS) {
+      if (learning(state.meta.stats.chords, Game.TEACH_CHORDS)) {
         Scene.floatText(L('И ВТОРУЮ!', 'AND THE OTHER!'), -ev.side, ev.dist, '#ffd94d');
       }
       break;
@@ -1328,7 +1333,7 @@ function handleStrikeEvent(ev) {
       Scene.burst(ev.side, ev.dist, ev.held ? '#7fd0ff' : '#7f8ca8', ev.held ? 10 : 5);
       Sound.sfx('glance', 1, sidePan(ev.side, ev.dist));
       if (ev.held) Scene.floatText(L('ЗАМЕР', 'HELD'), ev.side, ev.dist, '#7fd0ff');
-      if ((state.meta.stats.stanceSwitches || 0) < Game.TEACH_STANCE) {
+      if (learning(state.meta.stats.stanceSwitches, Game.TEACH_STANCE)) {
         // name the way OUT, not just the failure: the two grammars that do bite
         // this body, in the order the chips sit on screen
         const works = Game.STANCES
@@ -1386,7 +1391,7 @@ function handleStrikeEvent(ev) {
     case 'qteFail':
       Scene.floatText(L('СБОЙ', 'FAULT'), ev.side, 120, '#ff5c7a');
       // fell for a lying link — name the rule instead of just punishing
-      if (ev.glitch && state.meta.stats.glitchHits < Game.TEACH_GLITCH) {
+      if (ev.glitch && learning(state.meta.stats.glitchHits, Game.TEACH_GLITCH)) {
         Scene.floatText(L('ЗВЕНО ЛГАЛО — БЕЙ НАОБОРОТ', 'THE LINK LIED — STRIKE OPPOSITE'),
           -ev.side, 210, '#ff4de0');
       }
@@ -1599,16 +1604,32 @@ function renderPauseBrief() {
 
 let lastHurtSide = 1; // side of the last hit taken — for the hero death animation
 
+// A teaching word stays on while the profile is still learning that body —
+// or always, with the debug panel's «обучение: всегда» (the save is untouched)
+const learning = (n, lim) => Debug.teachAll || (n || 0) < lim;
+
 function handleTickEvent(ev) {
   switch (ev.type) {
+    // The newcomers name their rule in a word or two — only while the profile
+    // has not yet answered that body a few times (the act's first wave also
+    // stages each newcomer alone on the road, Game.actDebuts)
     case 'windup':
       Sound.sfx('windup', 1, sidePan(ev.side, ev.dist));
+      if (learning(state.meta.stats.reflects, Game.TEACH_THROW)) {
+        Scene.floatText(L('ОТБЕЙ СЮРИКЕН', 'DEFLECT THE SHURIKEN'), ev.side, ev.dist, '#26d6ff');
+      }
       break;
     case 'stance':
       Sound.sfx('stance', 1, sidePan(ev.side, ev.dist));
+      if (learning(state.meta.stats.fencerKills, Game.TEACH_FENCER)) {
+        Scene.floatText(L('ЖДИ ЗЕЛЁНОЕ ОКНО', 'WAIT FOR THE GREEN'), ev.side, ev.dist, '#9dffb0');
+      }
       break;
     case 'fencerOpen':
       Sound.sfx('open', 1, sidePan(ev.side, ev.dist));
+      if (learning(state.meta.stats.fencerKills, Game.TEACH_FENCER)) {
+        Scene.floatText(L('БЕЙ!', 'STRIKE!'), ev.side, ev.dist, '#5dff9b');
+      }
       break;
     case 'fencerMiss':
       Sound.sfx('throw', 1, sidePan(ev.side, ev.dist)); // the whoosh of a lunge into thin air
@@ -1616,7 +1637,7 @@ function handleTickEvent(ev) {
     case 'sealTell':
       // the first sealed bodies name their own rule: a mark that answers one
       // grammar and no other is not guessable, so it is said once
-      if ((state.meta.stats.sealKills || 0) < Game.TEACH_STANCE) {
+      if (learning(state.meta.stats.sealKills, Game.TEACH_STANCE)) {
         Scene.floatText(L('ПЕЧАТЬ', 'SEAL'), ev.side, ev.dist, '#ffffff');
         Scene.floatText(L('ТОЛЬКО ЭТА СТОЙКА', 'THIS STANCE ONLY'), ev.side, ev.dist + 55, '#cfe6ff');
       }
@@ -1627,7 +1648,7 @@ function handleTickEvent(ev) {
       Sound.sfx(ev.phantom ? 'stance' : 'open', 1, sidePan(ev.side, ev.dist));
       if (ev.phantom) {
         Scene.floatText(L('ПРИЗРАК?', 'PHANTOM?'), ev.side, ev.dist, '#7fd0ff');
-        if ((state.meta.stats.mimicReads || 0) < Game.TEACH_MIMIC) {
+        if (learning(state.meta.stats.mimicReads, Game.TEACH_MIMIC)) {
           Scene.floatText(L('ПОЛЫЙ — НЕ БЕЙ', 'HOLLOW — DON\'T STRIKE'), ev.side, ev.dist + 60, '#7fd0ff');
         }
       }
@@ -1648,7 +1669,7 @@ function handleTickEvent(ev) {
       Scene.flash('#ff2d4e', 0.14);
       Scene.floatText(L('ПРОМАХ', 'MISS'), ev.side || 1, 80, '#ff5c7a');
       // say WHY, not just that it failed
-      if (state.meta.stats.chords < Game.TEACH_CHORDS) {
+      if (learning(state.meta.stats.chords, Game.TEACH_CHORDS)) {
         Scene.floatText(L('НУЖНЫ ОБЕ СРАЗУ', 'BOTH AT ONCE'), 1, 150, '#ffd94d');
       }
       break;
@@ -2028,6 +2049,18 @@ $('scene').addEventListener('pointerdown', e => {
 // The right button is a strike, not a menu request — suppress the context menu over
 // the play field so the right-click lands as an attack instead of a popup.
 $('scene').addEventListener('contextmenu', e => e.preventDefault());
+// The browser's own gestures, page-wide: the menu, the screens and the HUD are
+// played with the same two buttons, so a right-press anywhere is a strike, not
+// the start of a context menu or a right-drag mouse gesture. Middle-press
+// autoscroll, ctrl-wheel / trackpad-pinch zoom (Safari's gesture* events too)
+// and dragging a picture off the page all go the same way. The left button is
+// left alone: the screens' own buttons and the debug sliders need it, and so
+// does a text field (the board's name) keep its menu for paste.
+const isText = e => e.target instanceof HTMLInputElement && e.target.type === 'text';
+for (const t of ['contextmenu', 'dragstart', 'auxclick', 'gesturestart', 'gesturechange'])
+  document.addEventListener(t, e => { if (!isText(e)) e.preventDefault(); }, { capture: true });
+document.addEventListener('mousedown', e => { if ((e.button === 1 || e.button === 2) && !isText(e)) e.preventDefault(); }, { capture: true });
+document.addEventListener('wheel', e => { if (e.ctrlKey) e.preventDefault(); }, { capture: true, passive: false });
 
 // ---------- Gamepad ----------
 // Presses arrive through Pad.poll() in the loop — the Gamepad API has no
@@ -2223,6 +2256,8 @@ function renderSettings() {
     b.classList.toggle('primary', b.dataset.calm === settings.calm);
   for (const b of document.querySelectorAll('#fps-tabs button'))
     b.classList.toggle('primary', (b.dataset.fps === 'on') === settings.fps);
+  for (const b of document.querySelectorAll('#cm-tabs button'))
+    b.classList.toggle('primary', (b.dataset.cm === 'on') === settings.comboMusic);
 }
 
 // The frame counter is a diagnostic, not a HUD element: off unless asked for,
@@ -2284,6 +2319,15 @@ for (const b of document.querySelectorAll('#fps-tabs button')) {
   b.addEventListener('click', () => {
     settings.fps = b.dataset.fps === 'on';
     applyFps();
+    saveSettings();
+    Sound.sfx('ui');
+    renderSettings();
+  });
+}
+for (const b of document.querySelectorAll('#cm-tabs button')) {
+  b.addEventListener('click', () => {
+    settings.comboMusic = b.dataset.cm === 'on';
+    Sound.setFlag('comboMusic', settings.comboMusic);
     saveSettings();
     Sound.sfx('ui');
     renderSettings();
@@ -2638,6 +2682,7 @@ applyBlade(); // the equipped palette paints the edge from the first frame
 // device settings take effect before the first frame is drawn or heard
 Sound.setFlag('musicVol', settings.musicVol);
 Sound.setFlag('sfxVol', settings.sfxVol);
+Sound.setFlag('comboMusic', settings.comboMusic);
 Scene.setQuality(settings.gfx);
 applyCalm();
 applyFps();

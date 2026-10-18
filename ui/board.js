@@ -20,7 +20,19 @@ const Board = (() => {
   const NAME_KEY = 'cyber-ronin-name';
   const NAME_MAX = 16;
 
-  const enabled = () => !!BOARD_URL;
+  // A platform may bring its own boards (ui/yandex.js: the native Yandex
+  // leaderboards — the yandex build never talks to our worker). The backend:
+  //   submit(key, entry) → Promise   — keeps the player's best, never lowers it
+  //   fetch(key)         → Promise<{ top: [{name, score, act, wave, victory, me, rank}], total, rank }>
+  //   archive            — false: one board per kind, no dated pages to walk
+  //   allTime            — true: the daily/monthly board holds the best of ALL days
+  //   authorized()       → can this player write; login() → Promise (the platform's sign-in)
+  // Its rows carry no replays and its names come from the platform profile, so
+  // the ▶ and the rename editor stay away.
+  let backend = null;
+  function setBackend(b) { backend = b; champCache = null; }
+  const enabled = () => (backend ? true : !!BOARD_URL && !(typeof window !== 'undefined' && window.CR_YANDEX));
+  const archive = () => !backend || backend.archive !== false;
 
   // AbortSignal.timeout arrived in Safari 16 — without it a board request
   // simply has no deadline, which beats a TypeError that kills the whole
@@ -59,6 +71,11 @@ const Board = (() => {
     try { localStorage.setItem(NAME_KEY, clean); } catch (e) { /* no save */ }
     return getName();
   }
+
+  // through the platform's boards when there are some, our worker otherwise
+  const submitEntry = (key, entry) => (backend ? backend.submit(key, entry)
+    : api('POST', key, { pid: pid(), name: getName(), ...entry }));
+  const fetchBoard = key => (backend ? backend.fetch(key) : api('GET', key));
 
   async function api(method, key, body) {
     const url = `${BOARD_URL}/board/${key}` + (method === 'GET' ? `?pid=${pid()}` : '');
@@ -110,10 +127,38 @@ const Board = (() => {
     return el;
   };
 
+  // the platform's daily and monthly boards are one board each, across all days
+  const allTimeLine = (parent, key) => {
+    if (!backend || !backend.allTime || bare(key) === 'campaign' || bare(key) === 'endless') return;
+    parent.appendChild(div('board-way', isMonth(key)
+      ? L('лучшее за все месяцы', 'best of all months')
+      : L('лучшее за все дни', 'best of all days')));
+  };
+
+  // A guest cannot write to the platform's boards: say so, and offer the sign-in
+  // that puts the run on the board (re-submitted at once).
+  function loginLine(container, s) {
+    if (!backend || !backend.authorized || backend.authorized()) return;
+    const wrap = div('board-name');
+    wrap.appendChild(div('board-empty', L('войди в Яндекс, чтобы попасть в таблицу', 'sign in to Yandex to get on the board')));
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cyber-btn mini';
+    btn.textContent = L('ВОЙТИ', 'SIGN IN');
+    btn.addEventListener('click', () => {
+      btn.disabled = true;
+      backend.login().then(() => { if (backend.authorized() && s) runEnd(container, s); })
+        .catch(() => {}).then(() => { btn.disabled = false; });
+    });
+    wrap.appendChild(btn);
+    container.appendChild(wrap);
+  }
+
   function renderRows(container, key, data, withEditor) {
     container.textContent = '';
     container.appendChild(div('board-title', boardTitle(key)));
     wayLine(container, key);
+    allTimeLine(container, key);
     // namesakes on the visible list get their public pid tag — two «ронин»
     // must not read as one player
     const dupes = {};
@@ -121,7 +166,7 @@ const Board = (() => {
     const list = div('board-list');
     data.top.forEach((row, i) => {
       const r = div('board-row' + (row.me ? ' me' : ''));
-      r.appendChild(div('rank', `${i + 1}`));
+      r.appendChild(div('rank', `${row.rank || i + 1}`));
       const name = div('name', row.name);
       if (dupes[row.name] > 1 && row.tag) {
         name.appendChild(div('tag', `#${row.tag}`));
@@ -147,10 +192,12 @@ const Board = (() => {
     if (!data.top.length) list.appendChild(div('board-empty', L('здесь ещё никого — ты первый', 'no one here yet — you are first')));
     container.appendChild(list);
     const foot = div('board-foot');
-    foot.textContent = Game.F('игроков: {n}', 'players: {n}', { n: data.total }) +
-      (data.rank ? ` · ${L('ты', 'you')} #${data.rank}` : '');
+    // the platform does not say how many play — then only the player's own place
+    foot.textContent = [data.total != null ? Game.F('игроков: {n}', 'players: {n}', { n: data.total }) : '',
+      data.rank ? `${L('ты', 'you')} #${data.rank}` : ''].filter(Boolean).join(' · ');
     container.appendChild(foot);
-    if (withEditor) container.appendChild(renderNameEditor(container));
+    if (withEditor && !backend) container.appendChild(renderNameEditor(container));
+    if (withEditor) loginLine(container, lastSubmit);
   }
 
   // A one-line rename control: the upsert keeps the score, changes the label.
@@ -254,9 +301,9 @@ const Board = (() => {
     container.appendChild(div('board-title', boardTitle(res.key) + '…'));
     wayLine(container, res.key);
     try {
-      await api('POST', res.key, { pid: pid(), name: getName(), ...res.entry });
+      await submitEntry(res.key, res.entry);
       champCache = null; // the menu's frame must catch a possible new leader
-      renderRows(container, res.key, await api('GET', res.key), true);
+      renderRows(container, res.key, await fetchBoard(res.key), true);
     } catch (e) {
       // offline or the worker is down — the board simply is not there today
       container.classList.add('hidden');
@@ -268,7 +315,7 @@ const Board = (() => {
   function submitQuiet(s) {
     const res = runResult(s);
     if (!res) return;
-    api('POST', res.key, { pid: pid(), name: getName(), ...res.entry })
+    submitEntry(res.key, res.entry)
       .then(() => { champCache = null; })
       .catch(() => {});
   }
@@ -297,7 +344,7 @@ const Board = (() => {
       if (champCache && champCache.key === key && Date.now() - champCache.ts < CHAMP_TTL) {
         data = champCache.data;
       } else {
-        data = await api('GET', key);
+        data = await fetchBoard(key);
         champCache = { key, data, ts: Date.now() };
       }
     } catch (e) {
@@ -312,21 +359,22 @@ const Board = (() => {
       // an empty throne is itself an invitation
       container.appendChild(div('champ-title', '👑 ' + L('СИД ДНЯ', 'DAILY SEED')));
       container.appendChild(div('champ-empty', L('трон пуст — займи его первым', 'the throne is empty — take it first')));
-      container.appendChild(div('champ-detail', Game.F('играли сегодня: {n}', 'played today: {n}', { n: data.total })));
+      if (data.total != null) container.appendChild(div('champ-detail', Game.F('играли сегодня: {n}', 'played today: {n}', { n: data.total })));
       const act = div('champ-actions');
       act.appendChild(champBtn('cyber-btn mini primary', L('⚔ ЗАНЯТЬ ТРОН', '⚔ TAKE THE THRONE'), onChallenge));
       container.appendChild(act);
       container.classList.remove('hidden');
       return;
     }
+    const allTime = !!(backend && backend.allTime); // the platform's daily board spans every day
     container.appendChild(div('champ-title', '👑 ' + (top.me
-      ? L('ТЫ ДЕРЖИШЬ СИД ДНЯ', 'YOU HOLD THE DAILY SEED')
-      : L('ЛИДЕР СИДА ДНЯ', 'DAILY SEED CHAMPION'))));
+      ? (allTime ? L('ТЫ ДЕРЖИШЬ РЕКОРД СИДА ДНЯ', 'YOU HOLD THE DAILY SEED RECORD') : L('ТЫ ДЕРЖИШЬ СИД ДНЯ', 'YOU HOLD THE DAILY SEED'))
+      : (allTime ? L('РЕКОРД СИДА ДНЯ', 'DAILY SEED RECORD') : L('ЛИДЕР СИДА ДНЯ', 'DAILY SEED CHAMPION')))));
     container.appendChild(div('champ-name', top.name));
     container.appendChild(div('champ-score', Game.fmt(top.score)));
     container.appendChild(div('champ-detail',
       (top.victory ? '✓ ' + L('полный проход', 'full clear') : `${L('акт', 'act')} ${top.act}`) +
-      ` · ${Game.F('играли сегодня: {n}', 'played today: {n}', { n: data.total })}` +
+      (data.total != null ? ` · ${Game.F('играли сегодня: {n}', 'played today: {n}', { n: data.total })}` : '') +
       (data.rank && !top.me ? ` · ${L('ты', 'you')} #${data.rank}` : '')));
     const act = div('champ-actions');
     // the champion's tape rides the same route as a board row's ▶
@@ -348,7 +396,7 @@ const Board = (() => {
     container.appendChild(div('board-title', boardTitle(key) + '…'));
     wayLine(container, key);
     try {
-      renderRows(container, key, await api('GET', key), false);
+      renderRows(container, key, await fetchBoard(key), false);
     } catch (e) {
       container.textContent = '';
       container.appendChild(div('board-empty',
@@ -356,5 +404,5 @@ const Board = (() => {
     }
   }
 
-  return { enabled, wayKey, isStanceKey, runEnd, submitQuiet, view, champ, getName, setName, setIdentity };
+  return { enabled, archive, wayKey, isStanceKey, runEnd, submitQuiet, view, champ, getName, setName, setIdentity, setBackend };
 })();

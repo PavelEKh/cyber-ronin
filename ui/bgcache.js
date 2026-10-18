@@ -423,49 +423,39 @@ const BgCache = (() => {
       }
     }
 
-    // ---- a sakura branch drooping into the top-left corner — the near-plane depth
+    // ---- a sakura branch in the top-left corner, drawn as an ink stroke: a thin
+    // angular limb, a few big five-petal flowers and buds — the near-plane depth
     // the open roof otherwise lacks. Anchored to the corner and only SWAYS, never
     // scrolls. Left side on purpose: the right is full (torii, moon, score), and
-    // framing the empty corner balances it. Coordinates are fractions of W/H, scaled
-    // at draw. Blossoms stay out of the HUD's bright corner by a y floor — the dark
-    // limb may pass behind the pips, a lit blossom may not.
-    const rBr = sub('branch');
-    const branch = { limb: [], twigs: [], blossoms: [] };
+    // framing the empty corner balances it.
+    // Coordinates are in units of a 720-tall frame, scaled by H/720 at draw, so the
+    // stroke keeps its shape on any aspect. The shape is the one picked by ear in
+    // tools/scene/landmarks-lab.html (2026-10-17) — its own fixed seed rather than
+    // sub('branch'), so the game draws exactly that branch. Flowers stay below
+    // y 90: the dark limb may pass behind the armor pips, a lit flower may not.
+    const branch = { seg: [], flowers: [], buds: [] };
     if (roofTop) {
-      // Blossoms may not sit behind the HUD's bright corner (armor pips). Rather than
-      // DROP the ones that would — which left the branch bald whenever a seed kept
-      // the limb high — a stray blossom is pushed down to this floor. None are ever
-      // lost to luck; the branch is lush by construction.
-      const yFloor = (HUD_SAFE + 26) / H;
-      // Steep and descending: the limb must reach well into the visible band so the
-      // twigs have room to hang. The angle is clamped to stay pointed down — a branch
-      // that wanders back up above the frame edge takes its blossoms with it.
-      let px = -0.02, py = -0.02, ang = 0.95;
-      const nodeN = 7;
-      branch.limb.push({ x: px, y: py });
-      for (let i = 1; i <= nodeN; i++) {
-        const len = 0.055 + rBr() * 0.03;
-        ang = Math.min(1.3, Math.max(0.6, ang + (rBr() - 0.5) * 0.22));
-        px += Math.cos(ang) * len;
-        py += Math.sin(ang) * len;
-        branch.limb.push({ x: px, y: py });
-        if (rBr() < 0.9) {
-          // twigs fan outward but never steeply up, so their blossoms stay in frame
-          const tAng = ang + (rBr() < 0.5 ? -1 : 1) * (0.35 + rBr() * 0.5);
-          const tLen = 0.03 + rBr() * 0.035;
-          const ex = px + Math.cos(tAng) * tLen;
-          const ey = py + Math.sin(tAng) * tLen;
-          branch.twigs.push({ x1: px, y1: py, x2: ex, y2: ey, w: nodeN - i + 1 });
-          const bn = 3 + Math.floor(rBr() * 3);
-          for (let k = 0; k < bn; k++) {
-            const f = 0.35 + (k / bn) * 0.75;
-            branch.blossoms.push({
-              x: px + (ex - px) * f, y: Math.max(yFloor, py + (ey - py) * f),
-              r: 0.011 + rBr() * 0.009, ph: rBr() * 7,
-              lean: 0.5 + f,
-            });
-          }
+      let seed = 17;
+      const rBr = () => { // mulberry32, as in the lab page
+        seed = seed + 0x6D2B79F5 | 0;
+        let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      };
+      const yFloor = 90;
+      let x = -20, y = -20, a = 0.5;
+      for (let i = 0; i < 7; i++) {
+        a += (i % 2 ? 0.55 : -0.45) + (rBr() - 0.5) * 0.2; // the zigzag of an ink limb
+        const L = 70 + rBr() * 40, ex = x + Math.cos(a) * L, ey = y + Math.sin(a) * L;
+        branch.seg.push({ x1: x, y1: y, x2: ex, y2: ey, w: 11 - i * 1.3 });
+        if (i > 1 && rBr() < 0.8) {
+          const ta = a + (rBr() < 0.5 ? -1 : 1) * 0.9, tl = 30 + rBr() * 30;
+          const tx = ex + Math.cos(ta) * tl, ty = ey + Math.sin(ta) * tl;
+          branch.seg.push({ x1: ex, y1: ey, x2: tx, y2: ty, w: 3 });
+          (rBr() < 0.6 ? branch.flowers : branch.buds).push({ x: tx, y: Math.max(yFloor, ty), ph: rBr() * 7 });
         }
+        if (i > 0 && rBr() < 0.7) branch.flowers.push({ x: ex, y: Math.max(yFloor, ey), ph: rBr() * 7 });
+        x = ex; y = ey;
       }
     }
 

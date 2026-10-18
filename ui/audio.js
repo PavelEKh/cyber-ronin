@@ -55,6 +55,7 @@ const Sound = (() => {
     sfxVol: 1,
     tier: null,        // null = follow the combo; 0..3 = pin a layer count
     bpm: 120,
+    comboMusic: true,  // the recorded song follows the combo; off = always full, vocal in turn
   };
   const flags = () => FLAGS;
   // The tier actually playing. With gating off the arrangement floors at 2 —
@@ -81,6 +82,10 @@ const Sound = (() => {
       limiter.threshold.value = v ? -3 : 0;
     }
     if (k === 'space' || k === 'spaceGain') setSpace(musicAct);
+    if (k === 'comboMusic' && recLoud && recAct !== 'menu') {
+      const t = ctx.currentTime, g = recLoud.gain;
+      g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.setTargetAtTime(recFull() ? 1 : REC_QUIET, t, 0.5);
+    }
     if (k === 'peril' && musicFx) {
       const t = ctx.currentTime, f = musicFx.frequency;
       f.cancelScheduledValues(t);
@@ -102,13 +107,7 @@ const Sound = (() => {
       // A compressor with a high ratio and a near-zero attack is the standard
       // stand-in for a brickwall limiter in WebAudio.
       if (ctx.createDynamicsCompressor) {
-        limiter = ctx.createDynamicsCompressor();
-        limiter.threshold.value = -3;
-        limiter.knee.value = 0;
-        limiter.ratio.value = 20;
-        limiter.attack.value = 0.002;
-        limiter.release.value = 0.12;
-        master.connect(limiter).connect(ctx.destination);
+        makeLimiter();
       } else {
         master.connect(ctx.destination);
       }
@@ -123,10 +122,13 @@ const Sound = (() => {
       duckGain = ctx.createGain();
       duckGain.gain.value = 1;
       musicBus.connect(musicFx).connect(duckGain).connect(master);
+      nanGuard();
+      decodeRec();
       // impacts get their own bus so the debug panel can mute them independently
       sfxBus = ctx.createGain();
       sfxBus.gain.value = FLAGS.sfx ? FLAGS.sfxVol : 0;
       sfxBus.connect(master);
+      loadTakes();
       // A reverb send fed from the impacts only. The music stays dry — drenching
       // the arrangement muddies it, while putting the hits in a room is what
       // tells you where the fight is happening. Level and impulse are per act.
@@ -154,6 +156,42 @@ const Sound = (() => {
     }
     if (ctx.state === 'suspended') ctx.resume();
     return true;
+  }
+
+  function makeLimiter() {
+    limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = FLAGS.limiter ? -3 : 0;
+    limiter.knee.value = 0;
+    limiter.ratio.value = FLAGS.limiter ? 20 : 1;
+    limiter.attack.value = 0.002;
+    limiter.release.value = 0.12;
+    master.connect(limiter).connect(ctx.destination);
+  }
+
+  // One NaN in a filter's state is forever: the node outputs NaN until it is
+  // dropped, and everything downstream goes with it — a squeal, then a dead
+  // score until reload. Once a second the music stage and the limiter are
+  // checked, and a poisoned one is swapped for a fresh node: a gap, not silence.
+  function nanGuard() {
+    const tap = node => { const a = ctx.createAnalyser(); a.fftSize = 256; node.connect(a); return a; };
+    const bad = a => { const b = new Float32Array(a.fftSize); a.getFloatTimeDomainData(b); return b.some(v => !Number.isFinite(v)); };
+    let mTap = tap(musicFx), lTap = limiter ? tap(limiter) : null;
+    setInterval(() => {
+      if (bad(mTap)) {
+        musicBus.disconnect(); musicFx.disconnect(); duckGain.disconnect();
+        musicFx = ctx.createBiquadFilter();
+        musicFx.type = 'lowpass';
+        musicFx.frequency.value = restFreq();
+        duckGain = ctx.createGain();
+        musicBus.connect(musicFx).connect(duckGain).connect(master);
+        mTap = tap(musicFx);
+      }
+      if (lTap && bad(lTap)) {
+        master.disconnect(); limiter.disconnect();
+        makeLimiter();
+        lTap = tap(limiter);
+      }
+    }, 1000);
   }
 
   function noiseBuffer(dur) {
@@ -248,6 +286,42 @@ const Sound = (() => {
   //        is built on. Anything not tied to a side (waves, UI, the hero's own
   //        death) stays centred.
   // j()  — light random jitter so identical hits never sound stamped
+  // ---------- Recorded takes (ui/samples.js) ----------
+  // A few sounds are recordings, not synthesis: the set's takes are decoded
+  // once the context exists, and a call plays one of them at random — never the
+  // take that played last, so a run of hits never stamps the same sound twice.
+  // A set that has not decoded yet (or failed to) falls back to its synth voice.
+  const takes = {}, lastTake = {};
+  const TAKE_GAIN = { slash: 0.55, miss: 0.5, reflect: 0.55, parry: 0.55, block: 0.55, glance: 0.45, hurt: 0.6, bossdead: 0.7 };
+  function loadTakes() {
+    if (typeof SAMPLES === 'undefined') return;
+    for (const name in SAMPLES) {
+      takes[name] = [];
+      SAMPLES[name].forEach((uri, i) => {
+        const bin = atob(uri.slice(uri.indexOf(',') + 1));
+        const buf = new Uint8Array(bin.length);
+        for (let k = 0; k < bin.length; k++) buf[k] = bin.charCodeAt(k);
+        // the callback form: older Safari has no promise from decodeAudioData
+        ctx.decodeAudioData(buf.buffer, ab => { takes[name][i] = ab; }, () => {});
+      });
+    }
+  }
+  function playTake(name, rate) {
+    const set = takes[name] && takes[name].filter(Boolean);
+    if (!set || !set.length) return false;
+    let i = Math.floor(Math.random() * set.length);
+    if (set.length > 1 && i === lastTake[name]) i = (i + 1 + Math.floor(Math.random() * (set.length - 1))) % set.length;
+    lastTake[name] = i;
+    const src = ctx.createBufferSource();
+    src.buffer = set[i];
+    src.playbackRate.value = rate;
+    const g = ctx.createGain();
+    g.gain.value = TAKE_GAIN[name] || 0.6;
+    src.connect(g).connect(voiceDest || sfxBus);
+    src.start();
+    return true;
+  }
+
   function sfx(name, pitch, pan, kind) {
     if (!ctx) return;
     const p = pitch || 1;
@@ -264,6 +338,7 @@ const Sound = (() => {
     try { build(); } finally { voiceDest = null; }
 
     function build() {
+    if (playTake(name, j())) return;
     switch (name) {
       case 'slash': // whistle + a high "edge" + a short metallic ring
         noiseHit(0.09, 5200 * v.crunch * j(), 1400 * p, 0.45, 3);
@@ -271,8 +346,14 @@ const Sound = (() => {
         tone('sawtooth', 3400 * v.ring * j(), 900 * p, 0.07, 0.1);
         break;
       case 'kill': // a heavy cut: thump weight, wide crunch, discordant steel ring
+        // the recorded katana cut (the same takes as a plain hit) carries the
+        // blade; the synth keeps only the weight under it — the thump and the sub
+        // the recorded katana cut (the same takes as a plain hit) carries the
+        // blade; the synth kill rides under it a step quieter (K), so a kill
+        // still reads apart from a plain hit — the crunch and the steel ring
+        const K = playTake('slash', j()) ? 0.6 : 1;
         tone('sine', 150 * v.body * j(), 45, 0.16, 0.5);
-        noiseHit(0.14, 1800 * v.crunch * j(), 240, 0.55, 1.2);
+        noiseHit(0.14, 1800 * v.crunch * j(), 240, 0.55 * K, 1.2);
         if (FLAGS.weight) {
           // A sub that carries under the crunch, plus a hard transient for the
           // snap. The sub goes straight to sfxBus, bypassing the panner: low
@@ -281,9 +362,9 @@ const Sound = (() => {
           tone('sine', 88 * v.body, 27, 0.34, 0.6, 0, sfxBus);
           noiseHit(0.012, 3200 * v.crunch, 1100, 0.5, 1);
         }
-        noiseHit(0.05, 9500 * j(), 6500, 0.22, 8);
-        tone('triangle', 2600 * v.ring * j(), 2500 * v.ring * p, 0.09, 0.07);
-        tone('triangle', 3733 * v.ring * j(), 3600 * v.ring * p, 0.07, 0.05);
+        noiseHit(0.05, 9500 * j(), 6500, 0.22 * K, 8);
+        tone('triangle', 2600 * v.ring * j(), 2500 * v.ring * p, 0.09, 0.07 * K);
+        tone('triangle', 3733 * v.ring * j(), 3600 * v.ring * p, 0.07, 0.05 * K);
         break;
       case 'miss':    tone('sawtooth', 130 * j(), 55, 0.35, 0.42); noiseHit(0.2, 420, 90, 0.3, 2); break;
       case 'stunned': tone('square', 90, 80, 0.05, 0.1); break;
@@ -1076,8 +1157,11 @@ const Sound = (() => {
   // cinematic beat where everything smears for a moment. A real time-stretch
   // would mean re-rendering the arrangement; sweeping the lowpass down and back
   // reads as the same gesture and costs one filter automation.
-  function dropMusic(strength = 1) {
+  function dropMusic(strength = 1, combo = 0) {
     if (!ctx || !FLAGS.drop) return;
+    // a recording swells in at 10 by itself (setCombo) — a slam back on top
+    // of that swell turned the gentlest moment of the score into its sharpest
+    if (recAct && combo === REC_LOUD_AT) return;
     const t = ctx.currentTime;
     const f = musicFx.frequency, g = duckGain.gain;
     const dur = 0.55 * strength;
@@ -1110,6 +1194,7 @@ const Sound = (() => {
   // takes the offset rather than playing immediately: the scheduler runs ahead of
   // the music, so `w` is where this step actually belongs on the timeline.
   function scheduleStep(sAbs, w) {
+    if (recAct && recAct === musicAct) return; // the recording carries this act
     // A queued act handover lands here, on a bar line only: same step, same
     // instant on the clock, new key, new tune, new pulse. The grid re-anchors
     // so the tempo change costs no dropped beat, and the lowpass — sent down
@@ -1118,6 +1203,7 @@ const Sound = (() => {
       const oldDur = stepDur();
       musicAct = pendingAct;
       pendingAct = null;
+      if (recReady(musicAct)) { recStart(musicAct); return; } // the act has a recording: it takes over at this bar line
       musicRoot = ACT_ROOTS[musicAct] || 41.2;
       FLAGS.bpm = ACT_BPM[musicAct] || 120;
       musicT0 += sAbs * (oldDur - stepDur());
@@ -1311,11 +1397,34 @@ const Sound = (() => {
 
   // ---------- Act ambience ----------
   // The market is the only act with a life of its own behind the fight: a crowd
-  // murmuring, a grill sizzling somewhere, a vendor's bell now and then. All of
+  // murmuring and a grill sizzling somewhere. All of
   // it is synthesized from one looping noise buffer, and all of it rides the
   // music bus — so it obeys the music toggle and ducks with the score when a
   // hit lands, like everything else that is not the fight itself.
   let ambNodes = [], ambTimer = null;
+
+  // White noise through an RBJ biquad (bandpass Q linear, highpass Q in dB as
+  // in WebAudio), run twice round the buffer so the seam where one copy meets
+  // the next is continuous.
+  function bakedNoise(dur, type, freq, q) {
+    const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+    const x = new Float32Array(len);
+    for (let i = 0; i < len; i++) x[i] = Math.random() * 2 - 1;
+    const w = 2 * Math.PI * freq / ctx.sampleRate, cw = Math.cos(w);
+    const alpha = type === 'bandpass' ? Math.sin(w) / (2 * q) : Math.sin(w) / (2 * Math.pow(10, q / 20));
+    const b = type === 'bandpass' ? [alpha, 0, -alpha] : [(1 + cw) / 2, -(1 + cw), (1 + cw) / 2];
+    const a0 = 1 + alpha, a1 = -2 * cw, a2 = 1 - alpha;
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < len; i++) {
+        const y = (b[0] * x[i] + b[1] * x1 + b[2] * x2 - a1 * y1 - a2 * y2) / a0;
+        x2 = x1; x1 = x[i]; y2 = y1; y1 = y;
+        if (pass) d[i] = y;
+      }
+    }
+    return buf;
+  }
 
   function stopAmbience() {
     for (const n of ambNodes) {
@@ -1328,18 +1437,31 @@ const Sound = (() => {
   function startAmbience(actId) {
     stopAmbience();
     if (!ctx || actId !== 'market') return;
-    const noise = noiseBuffer(2.7);
+    // The filter is baked into each buffer instead of a live BiquadFilterNode,
+    // and the buffer is laid end to end in copies rather than looped: at a
+    // 96 kHz output Chromium's looping source squealed a few seconds in, on its
+    // own, straight into the speakers, with no filter or limiter in the path
+    // (Opera 136, 2026-10-16; a looped highpass first went NaN, 2026-10-12).
+    // Back-to-back one-shots — the way the act recordings are played — do not.
+    const feeds = [];
     const mk = (type, freq, q, base) => {
-      const src = ctx.createBufferSource();
-      src.buffer = noise;
-      src.loop = true;
-      const f = ctx.createBiquadFilter();
-      f.type = type; f.frequency.value = freq; f.Q.value = q;
+      const buf = bakedNoise(2.7, type, freq, q);
       const g = ctx.createGain();
       g.gain.value = base;
-      src.connect(f).connect(g).connect(musicBus);
-      src.start();
-      ambNodes.push(src, f, g);
+      g.connect(musicBus);
+      ambNodes.push(g);
+      let next = ctx.currentTime + 0.02;
+      feeds.push(() => {
+        while (next < ctx.currentTime + 2) { // 2 s ahead: a hidden tab's timer may idle a second
+          const src = ctx.createBufferSource();
+          src.buffer = buf;
+          src.connect(g);
+          src.start(next);
+          next += buf.duration;
+          ambNodes.push(src);
+          src.onended = () => { const i = ambNodes.indexOf(src); if (i >= 0) ambNodes.splice(i, 1); };
+        }
+      });
       return g;
     };
     const lfoTo = (param, hz, depth) => {
@@ -1363,25 +1485,10 @@ const Sound = (() => {
     const sizzle = mk('highpass', 5200, 0.7, 0.010);
     lfoTo(sizzle.gain, 2.9, 0.0045);
     lfoTo(sizzle.gain, 0.53, 0.0035);
-    // the vendor's bell: rare, quiet, always the same two notes — a real bell
-    // is a habit, not a melody
-    const ding = () => {
-      if (!ctx) return;
-      const t0 = ctx.currentTime + 0.02;
-      for (const [f, dt, v] of [[1318.5, 0, 0.045], [1760, 0.17, 0.03]]) {
-        const o = ctx.createOscillator();
-        o.type = 'sine';
-        o.frequency.value = f;
-        const g = ctx.createGain();
-        g.gain.setValueAtTime(0, t0 + dt);
-        g.gain.linearRampToValueAtTime(v, t0 + dt + 0.012);
-        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.9);
-        o.connect(g).connect(musicBus);
-        o.start(t0 + dt);
-        o.stop(t0 + dt + 1);
-      }
-    };
-    ambTimer = setInterval(() => { if (Math.random() < 0.4) ding(); }, 9000);
+    for (const f of feeds) f();
+    ambTimer = setInterval(() => { for (const f of feeds) f(); }, 500);
+    // (a vendor's bell — two pure sines, 1.3 and 1.8 kHz, every ~20 s — was cut
+    // 2026-10-15: over the menu postcard it read as a beep, not a bell)
   }
 
   // Each location keeps its own pulse — one number of variety that costs
@@ -1404,7 +1511,200 @@ const Sound = (() => {
   // screen behind us) — it simply starts clean.
   let pendingAct = null;
 
+  // ---------- Recorded act music (ui/music.js) ----------
+  // An act with a recording plays it instead of the synth set: a seamless
+  // instrumental LEVEL loop and a VOCAL part, both driven by the combo alone
+  // (waves and the Warden play no part). Under 10 the level loops quietly,
+  // 10–24 at full voice; from 25 the level plays out to its end, then
+  // vocal → level → vocal … A vocal already started always plays out; when
+  // the streak has fallen under 25 by then, the level simply keeps looping. Segments are queued ahead on the audio
+  // clock, so every seam lands sample-exact. They feed musicBus, so the duck,
+  // the drop, the pause and the peril filter all work on them unchanged. The
+  // synth sequencer keeps running silent (playingAct and the act handover still
+  // read it); until the recording decodes, the synth plays as before.
+  const REC = typeof MUSIC !== 'undefined' ? MUSIC : {};
+  const recBuf = {};                 // act → { level, vocal } AudioBuffers once decoded
+  let recAct = null, recCombo = 0, recTimer = null, recNext = 0, recLast = null, recRun = 0, recGain = null, recLoud = null, recSrcs = [];
+  const REC_QUIET = 0.45, REC_LOUD_AT = 10, REC_VOCAL_AT = 25; // ≈ −7 dB below 10
+  const REC_ACT_OUT = 4, REC_ACT_IN = 3.5; // act handover: the old record fades under the new one
+  let recFadeIn = 0;                 // set by transitionMusic for the next recStart only
+  // Full volume: the streak earned it — or the player switched the combo link
+  // off in the settings (comboMusic), and the menu has no combo to earn it with.
+  const recFull = () => !FLAGS.comboMusic || recCombo >= REC_LOUD_AT;
+  function decodeRec() {
+    for (const act in REC) {
+      if (recBuf[act]) continue;
+      recBuf[act] = {};
+      for (const k of ['level', 'vocal']) {
+        if (!REC[act][k]) continue; // the menu is a level loop alone
+        const uri = REC[act][k], bin = atob(uri.slice(uri.indexOf(',') + 1)), u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        ctx.decodeAudioData(u8.buffer, b => {
+          recBuf[act][k] = b;
+          // the set is already on the synth: hand it over to the recording now
+          if (musicTimer && musicAct === act && !recAct && recReady(act)) recStart(act);
+        }, () => {});
+      }
+    }
+  }
+  const recReady = act => !!(recBuf[act] && recBuf[act].level && (recBuf[act].vocal || !REC[act].vocal));
+  function recStart(act) {
+    recStop(0.05);
+    recAct = act; recLast = null; recRun = 0; recNext = ctx.currentTime + 0.05;
+    recGain = ctx.createGain();
+    if (recFadeIn) {   // an act handover: rise under the outgoing record's fade
+      const t = ctx.currentTime;
+      recGain.gain.setValueAtTime(0, t); recGain.gain.linearRampToValueAtTime(1, t + recFadeIn);
+      recFadeIn = 0;
+    }
+    recLoud = ctx.createGain(); recLoud.gain.value = act === 'menu' || recFull() ? 1 : REC_QUIET;
+    recGain.connect(recLoud).connect(musicBus);
+    recTimer = setInterval(recTick, 100); recTick();
+  }
+  // Every seam is a crossfade two beats wide, centred on the cut: each part is
+  // packed with one beat of run-up and run-out (MUSIC[act].pad, musicpack.py),
+  // so the incoming part starts a beat early and the outgoing one rings a beat
+  // past its end. Both sit on the same bar grid, so the drums overlap in step.
+  // Every seam, a loop into itself included, takes the equal-power curve: picked
+  // by ear over a straight ramp in tools/music/seams-lab.html (2026-10-17).
+  const XF_POW = new Float32Array(33).map((_, i) => Math.sin(i / 32 * Math.PI / 2));
+  const XF_POW_OUT = XF_POW.slice().reverse();
+  function recTick() {
+    if (!recAct) return;
+    const P = REC[recAct].pad || 0;
+    while (recNext < ctx.currentTime + 0.6 + P) {
+      // a short level loop plays levelReps times over before the vocal comes in,
+      // so the song is not wall-to-wall singing (musicpack.py LEVEL_REPS)
+      const kind = (recCombo >= REC_VOCAL_AT || !FLAGS.comboMusic) && recLast === 'level'
+        && recRun >= (REC[recAct].levelReps || 1) && recBuf[recAct].vocal ? 'vocal' : 'level';
+      const b = recBuf[recAct][kind], dur = REC[recAct][kind + 'Sec'] || b.duration;
+      const src = ctx.createBufferSource(), g = ctx.createGain();
+      src.buffer = b; src.connect(g).connect(recGain);
+      const now = ctx.currentTime, prev = recSrcs[recSrcs.length - 1];
+      // the very first part (and a part after the scratch) has no one to blend with
+      const blend = P && prev && prev.t0 + prev.dur === recNext && recNext - P > now;
+      const s0 = blend ? recNext - P : Math.max(now, recNext);
+      const off = blend ? 0 : P + (s0 - recNext);
+      if (blend) {
+        g.gain.setValueCurveAtTime(XF_POW, s0, 2 * P);
+        prev.g.gain.setValueCurveAtTime(XF_POW_OUT, s0, 2 * P);
+      }
+      src.start(s0, off, recNext + dur + P - s0); // the length, not a stop(): stop() stays free for the scratch
+      const e = { src, g, kind, t0: recNext, dur };
+      src.onended = () => { const i = recSrcs.indexOf(e); if (i >= 0) recSrcs.splice(i, 1); };
+      recSrcs.push(e); recNext += dur; recLast = kind; recRun = kind === 'level' ? recRun + 1 : 0;
+    }
+  }
+  // Freeze an automated gain where it stands. A crossfade curve may be running
+  // right now, and plain cancel + set inside a running curve throws.
+  function holdGain(p, t) {
+    if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t);
+    else { p.cancelScheduledValues(t); try { p.setValueAtTime(p.value, t); } catch (err) { /* inside a curve */ } }
+  }
+  // Take a queued part off the deck. Its run-up may already be sounding, so it
+  // goes in a quick fade rather than a click.
+  function recDrop(e, t) {
+    holdGain(e.g.gain, t); e.g.gain.linearRampToValueAtTime(0, t + 0.05);
+    try { e.src.stop(t + 0.06); } catch (err) { /* not started */ }
+    recSrcs.splice(recSrcs.indexOf(e), 1);
+  }
+  function recStop(fade = 0.4) {
+    if (recTimer) { clearInterval(recTimer); recTimer = null; }
+    if (recGain) {
+      const t = ctx.currentTime, g = recGain.gain;
+      g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0, t + fade);
+      for (const e of recSrcs) { try { e.src.stop(t + fade + 0.05); } catch (err) { /* already stopped */ } }
+    }
+    recSrcs = []; recGain = null; recLoud = null; recAct = null;
+  }
+  // The run's combo, from main.js every HUD update: crossing 10 the recording
+  // swells in slowly — a curve that is most of the way there in ~6 s, never a
+  // jump — and a broken streak sinks it in under half a second; the vocal
+  // reads the combo at the next seam (recTick).
+  function setCombo(n) {
+    const was = recCombo >= REC_LOUD_AT;
+    const broke = (n || 0) < recCombo && (n || 0) < REC_VOCAL_AT;
+    recCombo = n || 0;
+    // no streak in the menu, and none heard with combo music off: nothing to scratch or swell
+    if (recAct === 'menu' || !FLAGS.comboMusic) return;
+    if (broke && recAct) scratchOut();
+    const loud = recCombo >= REC_LOUD_AT;
+    if (recLoud && loud !== was) {
+      const t = ctx.currentTime, g = recLoud.gain;
+      g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+      if (loud) g.setTargetAtTime(1, t, 2);
+      else g.linearRampToValueAtTime(REC_QUIET, t + 0.4);
+    }
+  }
+
+  // The streak broke while she sings: the record is yanked. A slice of the
+  // last ~1.2 s of the vocal plays BACKWARDS at speed — the platter spun back
+  // under a hand — the vocal itself winds down like a stopped deck, and the
+  // instrumental drops back in from its top. Anything already queued past
+  // this moment is cancelled. A break during the level changes nothing here:
+  // setCombo only sinks it to the quiet level.
+  function scratchOut() {
+    const t = ctx.currentTime;
+    const v = recSrcs.find(e => e.kind === 'vocal' && e.t0 <= t && t < e.t0 + e.dur);
+    if (!v) {
+      // the level is still playing out, but the vocal may already be queued
+      // behind it (recTick looks 0.6 s ahead): take it back off the deck
+      const q = recSrcs.find(e => e.kind === 'vocal' && e.t0 > t);
+      if (!q) return;
+      for (const e of recSrcs.filter(e => e.t0 >= q.t0)) recDrop(e, t);
+      // the level before it was already set to fade out under the vocal: if that
+      // fade has not begun, call it off — the level's own repeat takes the seam
+      const prev = recSrcs.filter(e => e.t0 < q.t0).pop(), P = REC[recAct].pad || 0;
+      if (prev && q.t0 - P > t) prev.g.gain.cancelScheduledValues(q.t0 - P);
+      recNext = q.t0; recLast = 'vocal'; recRun = 0;
+      recTick();
+      return;
+    }
+    for (const e of recSrcs.slice()) {
+      if (e === v) continue;
+      if (e.t0 > t) recDrop(e, t);
+    }
+    // the deck winds down under the scratch
+    const WIND = 0.45;
+    holdGain(v.g.gain, t); v.g.gain.linearRampToValueAtTime(0, t + WIND);
+    v.src.playbackRate.cancelScheduledValues(t); v.src.playbackRate.setValueAtTime(1, t);
+    v.src.playbackRate.exponentialRampToValueAtTime(0.25, t + WIND);
+    try { v.src.stop(t + WIND + 0.02); } catch (err) { /* already stopping */ }
+    // the rewind: the same vocal, reversed, flung back fast and slowing
+    const b = v.src.buffer, sr = b.sampleRate, pos = Math.min(b.duration, t - v.t0 + (REC[recAct].pad || 0)); // the buffer opens with the run-up
+    const n = Math.max(1, Math.floor(Math.min(1.2, pos) * sr)), end = Math.floor(pos * sr);
+    const rb = ctx.createBuffer(b.numberOfChannels, n, sr);
+    for (let c = 0; c < b.numberOfChannels; c++) {
+      const src = b.getChannelData(c), dst = rb.getChannelData(c);
+      for (let i = 0; i < n; i++) dst[i] = src[end - 1 - i] || 0;
+    }
+    const sc = ctx.createBufferSource(), sg = ctx.createGain();
+    // Straight to the master, past the whole music chain on purpose: a broken
+    // streak is a miss, and the miss ducks the score to near-silence (duckMusic)
+    // and sinks the record to its quiet level at this very moment — the scratch
+    // must ride over both. The music slider still scales it (musicBus's level).
+    const vol = 1.6 * musicBus.gain.value;
+    sc.buffer = rb; sc.playbackRate.setValueAtTime(3.2, t); sc.playbackRate.linearRampToValueAtTime(1.0, t + WIND);
+    sg.gain.setValueAtTime(0, t); sg.gain.linearRampToValueAtTime(vol, t + 0.02);
+    sg.gain.setValueAtTime(vol, t + WIND - 0.1); sg.gain.linearRampToValueAtTime(0, t + WIND);
+    sc.connect(sg).connect(master); sc.start(t); sc.stop(t + WIND + 0.02);
+    // the instrumental drops back in from its top
+    recSrcs.splice(recSrcs.indexOf(v), 1);
+    recNext = t + WIND - 0.04; recLast = 'vocal'; recRun = 0;
+    recTick();
+  }
+
   function transitionMusic(actId) {
+    // a recording on either side: no bar-line handover to share — the old
+    // record fades out over REC_ACT_OUT while the new one rises under it
+    if (ctx && (recAct || recReady(actId))) {
+      if (actId !== musicAct || !recAct) {
+        if (recAct) recStop(REC_ACT_OUT);
+        if (recReady(actId)) recFadeIn = REC_ACT_IN;
+        startMusic(actId);
+      }
+      return;
+    }
     if (!ctx || !musicTimer) { startMusic(actId); return; }
     if (actId === musicAct || actId === pendingAct) return;
     pendingAct = actId;
@@ -1433,6 +1733,7 @@ const Sound = (() => {
     duckGain.gain.setValueAtTime(1, t0r);
     musicStep = 0;
     musicT0 = ctx.currentTime + 0.05; // a beat of headroom before the first step
+    if (recReady(actId)) recStart(actId);
     musicTimer = setInterval(() => {
       // stepDur() re-read every pass, not cached per tick: an act handover
       // inside scheduleStep changes the tempo and re-anchors musicT0 mid-loop
@@ -1444,6 +1745,7 @@ const Sound = (() => {
   }
 
   function stopMusic() {
+    if (ctx) recStop();
     stopAmbience();
     if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }
     autoTier = 0;
@@ -1460,6 +1762,7 @@ const Sound = (() => {
   // The menu postcard changed location: the ambient set follows — new root,
   // new room, the market's own murmur when the market slides by. The chords
   // simply take the new key on their next bar: a slow modulation, no restart.
+  // With the menu's recording on the decks only the room and the murmur move.
   function setMenuAct(actId) {
     if (!ctx || musicAct !== 'menu' || !musicTimer) return;
     musicRoot = ACT_ROOTS[actId] || 41.2;
@@ -1510,5 +1813,5 @@ const Sound = (() => {
   }
 
   return { ensure, sfx, note, setTier, rung, startMusic, stopMusic, transitionMusic, playingAct, setMenuAct, pauseMusic,
-           flags, setFlag, tier: musicTier, gridSec, duckMusic, dropMusic, setPeril, setDuel, setSpace, suspend };
+           flags, setFlag, tier: musicTier, gridSec, duckMusic, dropMusic, setPeril, setDuel, setSpace, suspend, setCombo };
 })();

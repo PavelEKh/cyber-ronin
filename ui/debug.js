@@ -19,7 +19,7 @@ const Debug = (() => {
 // main.js calls. Developers running the loose files keep everything.
 if (typeof window !== 'undefined' && window.CR_BUILD) {
   return {
-    timeScale: 1, frozen: false, noWarp: false, step: 0,
+    timeScale: 1, frozen: false, noWarp: false, step: 0, teachAll: false,
     timeDt: dt => dt, frame: () => {}, togglePanel: () => {},
   };
 }
@@ -55,6 +55,7 @@ const D = {
   timeScale: 1,
   frozen: false,
   noWarp: false,
+  teachAll: false, // every teaching word shows, whatever the profile has learned
   step: 0, // frames queued by the "кадр" button while frozen
 };
 
@@ -307,6 +308,21 @@ function build() {
     r.combo += 25;
     r.bestCombo = Math.max(r.bestCombo, r.combo);
   });
+  // the recorded score's thresholds: +5 steps across 10 to hear the swell,
+  // the reset is a broken streak — mid-vocal it yanks the record
+  btn(row, 'комбо +5', () => {
+    const r = run();
+    if (!r) return;
+    taint();
+    r.combo += 5;
+    r.bestCombo = Math.max(r.bestCombo, r.combo);
+  });
+  btn(row, 'сбросить комбо', () => {
+    const r = run();
+    if (!r) return;
+    taint();
+    r.combo = 0;
+  });
   btn(row, 'убить героя', () => {
     const r = run();
     if (!r || state.phase !== 'combat') return;
@@ -435,6 +451,9 @@ function build() {
     saveState();
   });
   note('забег с любой правкой помечается «без зачёта» — рекорды и кредиты в мету не идут');
+  row = section('обучение');
+  toggle(row, 'обучение: всегда', () => D.teachAll, () => { D.teachAll = !D.teachAll; });
+  note('подсказки новичков видны, даже если профиль их уже прошёл; сейв не трогается')
 }
 
 // ---------- Live readout ----------

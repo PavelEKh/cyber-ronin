@@ -12,6 +12,7 @@
 //  - interface language from the SDK, unless the player chose one here → init
 //  - a fullscreen ad between runs, the sound held under it            → Yandex.interstitial(go), main.js afterRun
 //  - the save mirrored in the player's cloud data                     → setSaveSink (core.js), pull at start
+//  - the leaderboards are Yandex's own (our worker is never called here) → Board.setBackend below
 // Everything is fire-and-forget: a missing SDK (a local smoke run of the yandex
 // build) logs once and the game plays on as a plain page.
 
@@ -55,24 +56,118 @@ const Yandex = (() => {
     if (activeScreen) showScreen(activeScreen);
   }
 
-  // The signed-in player becomes the board identity: his permanent uniqueID,
-  // hashed and cut to the worker's hex16, and his profile name as the default
-  // (scopes: false — no consent dialog at startup; without consent the name
-  // comes back empty and the ronin-xxxx fallback stands). A guest keeps the
-  // anonymous localStorage pid exactly as on every other platform.
+  // The player: the cloud save is for everyone; the boards need a signed-in one
+  // (setScore refuses a guest). scopes: false — no consent dialog at startup.
+  let authed = false, myUid = '';
   function adoptPlayer(sdk) {
-    if (typeof sdk.getPlayer !== 'function') return;
-    sdk.getPlayer({ scopes: false }).then(async p => {
+    if (typeof sdk.getPlayer !== 'function') return Promise.resolve();
+    return sdk.getPlayer({ scopes: false }).then(p => {
       if (!p) return;
-      pullSave(p); // the cloud save is for every player, signed in or not
-      if (!p.isAuthorized || !p.isAuthorized()) return;
-      const uid = String(p.getUniqueID() || '');
-      if (!uid) return;
-      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('cyber-ronin:' + uid));
-      const pid = Array.from(new Uint8Array(buf).slice(0, 8), b => b.toString(16).padStart(2, '0')).join('');
-      Board.setIdentity({ pid, name: typeof p.getName === 'function' ? p.getName() : '' });
+      if (!player) pullSave(p); // the cloud save is for every player, signed in or not
+      else player = p;
+      authed = !!(p.isAuthorized && p.isAuthorized());
+      myUid = authed ? String(p.getUniqueID() || '') : '';
     }).catch(e => console.warn('[yandex] player unavailable:', e && e.message));
   }
+
+  // ---------- The leaderboards ----------
+  // Yandex's native boards replace our worker in this build. One board per kind
+  // and way, created by hand in the console with exactly these technical names:
+  //   daily, monthly, campaign, endless — and the same with a «Stance» suffix
+  //   for the Way of Three Stances (dailyStance, …).
+  // The daily and monthly boards are ONE board each across all days/months:
+  // a player's best seed run ever. The number on the board is what our worker
+  // ranks by — the score, or for endless/monthly the total waves reached — and
+  // the rest of the row (score, act, wave, clear) rides in extraData.
+  // A board is only ever raised, never lowered: the player's own entry is read
+  // first and a weaker run is not sent. Limits (SDK docs): setScore 1/s,
+  // getEntries 20 per 5 min — hence the spacing and a short cache.
+  const isWaves = kind => kind === 'endless' || kind === 'monthly';
+  function lbName(key) {
+    const stance = key.startsWith('s:');
+    const k = stance ? key.slice(2) : key;
+    const kind = /^\d{4}-\d{2}-\d{2}$/.test(k) ? 'daily' : /^\d{4}-\d{2}$/.test(k) ? 'monthly' : k;
+    return { name: kind + (stance ? 'Stance' : ''), kind };
+  }
+  const metricOf = (kind, e) => (isWaves(kind) ? (e.act - 1) * Game.WAVES_PER_ACT + e.wave : e.score);
+  const parseExtra = x => { try { return JSON.parse(x || '{}') || {}; } catch (e) { return {}; } };
+  const lb = () => sdkReady.then(sdk => {
+    if (!sdk || !sdk.leaderboards) throw new Error('no leaderboards');
+    return sdk.leaderboards;
+  });
+
+  let setChain = Promise.resolve(), lastSet = 0;
+  const cache = new Map(); // board name → { ts, data } — or { ts, pending } while the read is in flight
+  const CACHE_TTL = 60000;
+
+  function submit(key, entry) {
+    if (!authed) return Promise.resolve(); // a guest's run stays off the board; the login line says why
+    const { name, kind } = lbName(key);
+    const metric = metricOf(kind, entry);
+    const extra = JSON.stringify({ s: entry.score, a: entry.act, w: entry.wave, v: entry.victory ? 1 : 0 });
+    return lb().then(async api => {
+      let old = null;
+      try { old = await api.getPlayerEntry(name); } catch (e) {
+        if (!e || e.code !== 'LEADERBOARD_PLAYER_NOT_PRESENT') throw e;
+      }
+      if (old) {
+        const o = parseExtra(old.extraData);
+        if (old.score > metric || (old.score === metric && (o.s | 0) >= entry.score)) return;
+      }
+      // one write per second at most, across all boards
+      setChain = setChain.catch(() => {}).then(async () => {
+        const wait = lastSet + 1100 - Date.now();
+        if (wait > 0) await new Promise(r => setTimeout(r, wait));
+        lastSet = Date.now();
+        await api.setScore(name, metric, extra);
+        cache.delete(name);
+      });
+      return setChain;
+    });
+  }
+
+  function fetchBoard(key) {
+    const { name, kind } = lbName(key);
+    const hit = cache.get(name);
+    if (hit && Date.now() - hit.ts < CACHE_TTL) return hit.pending || Promise.resolve(hit.data);
+    // two callers at once (the menu's frame on startup) share one read
+    const pending = lb().then(api => api.getEntries(name, { quantityTop: 10, includeUser: authed, quantityAround: 1 }))
+      .then(res => {
+        const seen = new Set();
+        const top = [];
+        for (const e of res.entries || []) {
+          if (seen.has(e.rank)) continue;
+          seen.add(e.rank);
+          const x = parseExtra(e.extraData);
+          const p = e.player || {};
+          top.push({
+            rank: e.rank,
+            name: p.publicName || L('ронин', 'ronin'),
+            score: isWaves(kind) ? (x.s | 0) : e.score,
+            act: Math.max(1, x.a | 0), wave: Math.max(1, x.w | 0), victory: !!x.v,
+            me: !!(myUid && p.uniqueID === myUid),
+          });
+        }
+        top.sort((a, b) => a.rank - b.rank);
+        const data = { top, total: null, rank: res.userRank || 0 };
+        cache.set(name, { ts: Date.now(), data });
+        return data;
+      }, e => { cache.delete(name); throw e; });
+    cache.set(name, { ts: Date.now(), pending });
+    return pending;
+  }
+
+  function login() {
+    return sdkReady.then(sdk => {
+      if (!sdk || !sdk.auth || authed) return;
+      return sdk.auth.openAuthDialog().then(() => adoptPlayer(sdk), () => {});
+    }).then(() => cache.clear());
+  }
+
+  Board.setBackend({
+    submit, fetch: fetchBoard, login, authorized: () => authed,
+    archive: false, allTime: true,
+  });
 
   // ---------- The save in the cloud ----------
   // The local save stays the source of truth for THIS device; the player's

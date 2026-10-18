@@ -21,6 +21,9 @@ html, body {
   font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
   user-select: none;
   -webkit-user-select: none;
+  /* no swipe-back / pull-to-refresh / rubber-band: an edge swipe is not a navigation */
+  overscroll-behavior: none;
+  -webkit-touch-callout: none;
 }
 
 #scene {
@@ -763,6 +766,18 @@ button.pad-focus, input.pad-focus {
   outline-offset: 2px;
   box-shadow: 0 0 18px rgba(38, 214, 255, 0.4);
 }
+/* the cut-corner buttons clip everything drawn outside them (the clip-path eats
+   the outline and the outer glow), so their cursor lives INSIDE the shape */
+.cyber-btn.pad-focus {
+  outline: none;
+  color: #fff;
+  background: rgba(38, 214, 255, 0.24);
+  box-shadow: inset 0 0 0 2px var(--cyan), inset 0 0 22px rgba(38, 214, 255, 0.45);
+}
+.cyber-btn.primary.pad-focus {
+  background: rgba(255, 45, 120, 0.24);
+  box-shadow: inset 0 0 0 2px var(--pink), inset 0 0 22px rgba(255, 45, 120, 0.45);
+}
 .cyber-btn:disabled { opacity: 0.35; cursor: default; box-shadow: none; }
 .cyber-btn:disabled:hover { background: rgba(16, 14, 36, 0.7); }
 /* endless mode: violet accent to stand apart from a regular run */
@@ -1022,9 +1037,9 @@ button.pad-focus, input.pad-focus {
   color: var(--text);
   font-size: 13px;
 }
-#gfx-tabs, #calm-tabs, #fps-tabs { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+#gfx-tabs, #calm-tabs, #fps-tabs, #cm-tabs { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
 /* the base .cyber-btn min-width would stack the four tiers one per line */
-#gfx-tabs .cyber-btn.mini, #calm-tabs .cyber-btn.mini, #fps-tabs .cyber-btn.mini { min-width: 0; flex: 1 1 auto; }
+#gfx-tabs .cyber-btn.mini, #calm-tabs .cyber-btn.mini, #fps-tabs .cyber-btn.mini, #cm-tabs .cyber-btn.mini { min-width: 0; flex: 1 1 auto; }
 
 /* Calm mode: the two purely decorative CSS strobes go still. Signal blinks
    (last armor pip, charged execute) stay — they carry information, and their

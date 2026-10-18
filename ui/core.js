@@ -74,7 +74,7 @@ function adoptSave(raw) {
 const SET_KEY = 'cyber-ronin-settings';
 
 const settings = (() => {
-  const s = { musicVol: 1, sfxVol: 1, gfx: 'auto', calm: 'auto', fps: false };
+  const s = { musicVol: 1, sfxVol: 1, gfx: 'auto', calm: 'auto', fps: false, comboMusic: true };
   try { Object.assign(s, JSON.parse(localStorage.getItem(SET_KEY)) || {}); }
   catch (e) { /* corrupted — defaults stand */ }
   const vol = v => Math.min(1, Math.max(0, +v || 0));
@@ -84,6 +84,8 @@ const settings = (() => {
   // calm mode drops shake/flashes/grain; 'auto' obeys the OS "reduce motion"
   if (!['auto', 'on', 'off'].includes(s.calm)) s.calm = 'auto';
   s.fps = s.fps === true; // the frame counter: a diagnostic, off by default
+  // the act's song answers the combo (quiet → loud → vocal); off = the whole song, vocal and all
+  s.comboMusic = s.comboMusic !== false;
   return s;
 })();
 

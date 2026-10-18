@@ -103,7 +103,7 @@ const STEP = 1 / 60;
 // rejected loudly instead. Bumping the epoch retires stored replays (board
 // ROWS survive). The full version shows in the menu corner.
 const VERSION_MAJOR = 1;
-const VERSION_REPLAY = 7; // 1.7: the Armorer's rally caps at three returns
+const VERSION_REPLAY = 8; // 1.8: a fuller first act, longer Warden duels, a duel holds against a cut away, newcomers staged alone, waves in phrases
                           // (1.6: the pool trades its dead pair (stasis, intercept) + the road learns its weather)
                           // (1.6: the pool trades its dead pair — the Stasis Discharge freezes the struck zone, the Intercept re-aims deflected steel)
                           // (1.5: the arc's follow-through is forgiven — a press into the side a sweep just cleared is not a whiff)
@@ -211,9 +211,11 @@ const HACK_TIMER = 0.35;
 // ---------- Boss (the act-ending Warden) ----------
 const BOSS_SPEED = 78;     // units/s, multiplied by act speed
 const BOSS_RETREAT = 430;  // where he retreats after contact or a QTE fault
-const BOSS_QTE_LEN = (act, phase) => Math.min(9, 3 + act + phase); // sequence length (capped for endless)
+// 1.8: three links longer from the first Warden on (act I: 7·8·9) and a
+// longer cap; past the opening duel every Warden fights four rounds.
+const BOSS_QTE_LEN = (act, phase) => Math.min(14, 6 + act + phase); // sequence length (capped for endless)
 const BOSS_QTE_PRESS = act => Math.max(0.45, 0.8 - (act - 1) * 0.07); // seconds per press
-const BOSS_PHASES = act => (act >= 3 ? 3 : 2);
+const BOSS_PHASES = act => (act >= 2 ? 4 : 3);
 // Each act's Warden has a signature trick; in endless mode the four cycle.
 // kind 1 — baseline QTE; 2 — Maglev: wind gusts hurl him forward;
 // 3 — Admin Oni: glitch links are displayed inverted, press the opposite side;
@@ -411,6 +413,8 @@ const CHORD_WIN = 0.18;
 const TEACH_STANCE = 4;  // "the stance did not bite" is invisible until named — say it, then stop
 const TEACH_CHORDS = 3;
 const TEACH_GLITCH = 3;
+const TEACH_FENCER = 3; // the newcomers' words (main.js) — until the profile has answered each body a few times
+const TEACH_THROW = 3;
 const TEACH_MIMIC = 3;  // "don't strike a phantom" can't be watched — it's learned once, then taught in-frame
 const THROW_WINDUP = 0.45; // sec of thrower wind-up: stands and blinks before the throw — it telegraphs
 // shuriken speed scales with acts half as fast as walkers, or the deflect window collapses
@@ -420,12 +424,16 @@ const projSpeedMult = sm => 1 + (sm - 1) * 0.5;
 const ACT_WEIGHTS = [
   { drone: 6, punk: 2 },                                             // street: the basics
   { drone: 5, punk: 3.5, shield: 1, mimic: 1.5 },                    // market: crowds and first fakes
-  { drone: 5, punk: 3, shield: 1.5, fencer: 0.8, thrower: 0.8 },     // maglev: first stances and steel
+  // maglev: first stances and steel — and a thin thread of mimics (~5%), so the
+  // fake met at the market is not forgotten for a whole act before the ship
+  { drone: 5, punk: 3, shield: 1.5, fencer: 0.8, thrower: 0.8, mimic: 0.6 },
   // ship: thrower country — and the pendulum's first swing: the ship completes
   // the stance vocabulary, and the heavy crosser used to arrive only in act V,
-  // where most careers never met the body the design had already paid for
-  { drone: 4, punk: 3, shield: 2, thrower: 2.2, fencer: 1, adapt: 0.6, twin: 0.8, mimic: 1 },
-  { drone: 4, punk: 3, shield: 2, thrower: 1.5, fencer: 1, adapt: 1, twin: 0.8, mimic: 2 },
+  // where most careers never met the body the design had already paid for.
+  // One newcomer per act from here: the twins moved on to the server hall
+  // (2026-10-17) — the ship used to bring two new bodies at once and the hall none
+  { drone: 4, punk: 3, shield: 2, thrower: 2.2, fencer: 1, adapt: 0.6, mimic: 1 },
+  { drone: 4, punk: 3, shield: 2, thrower: 1.5, fencer: 1, adapt: 1, twin: 0.8, mimic: 2 },     // server hall: the twins' chord
   { drone: 3, punk: 3, shield: 2.5, thrower: 2.5, fencer: 1.2, adapt: 1.5, twin: 1, mimic: 2.5 },
 ];
 // Deep endless: past the summit the road grows QUESTIONS, not speed. Every
@@ -1035,7 +1043,11 @@ function speedMult(run) {
 // survives to any depth and the campaign keeps its exact old plans.
 const PAIR_CAP = 0.68;
 const pairChance = act => Math.min(PAIR_CAP, 0.08 + (act - 1) * 0.12);
-function waveSize(run)   { return Math.min(40, 10 + (run.act - 1) * 7 + (run.wave - 1) * 4); }
+// The first act runs heavier (+3/+4/+4): its music only finds its voice at a
+// 25 streak, and the opening act must let a clean player get there inside
+// its second wave — 13 + 18 kills, where 10 + 14 left it out of reach.
+const ACT1_EXTRA = [3, 4, 4];
+function waveSize(run)   { return Math.min(40, 10 + (run.act - 1) * 7 + (run.wave - 1) * 4 + (run.act === 1 ? ACT1_EXTRA[run.wave - 1] || 0 : 0)); }
 function spawnGap(run)   { return Math.max(0.34, 1.05 - (run.act - 1) * 0.16 - (run.wave - 1) * 0.06); }
 
 // ---------- Run ----------
@@ -1121,6 +1133,50 @@ function weightedPick(s, weights) {
   return 'drone';
 }
 
+// The newcomers' introduction. A body the act brings for the first time does
+// not arrive by chance in the thick of a crowd: in the act's FIRST wave it is
+// staged — the n-th body of the wave (DEBUT_SLOTS), alone on the road, with
+// DEBUT_LEAD seconds clear before it and DEBUT_ROOM after. It is the same for
+// everyone (replays and boards stay comparable): a veteran just meets a short
+// gap in the column. The words that name the new rule are UI-only and stop once
+// the profile has answered that body a few times (TEACH_FENCER etc. in main.js).
+// Phrases. A wave is a string of phrases, not a bag of draws: a BREATHER
+// (2–3 bodies, light ones, roomier gaps, never a pincer) and then a PRESS
+// (3–5 bodies, the elites concentrated, tighter gaps, pincers likelier) —
+// tension and release instead of noise. The press carries the elites the
+// breather gave up: its elite share is the act table's × PRESS_SPREAD (at most
+// PRESS_MAX), and only when that is not enough — the late acts, the deep
+// road — the breather keeps the remainder, so the act's overall mix stays
+// what ACT_WEIGHTS says. Between a press and the next breather — the old
+// «lull» pause (2.2 gaps). Elites are the QUESTIONS; the shielder is heavy
+// infantry, not one.
+const ELITE = new Set(['thrower', 'fencer', 'adapt', 'twin', 'mimic']);
+const PRESS_MAX = 0.85;
+const PHRASE_PRESS = 4 / 6.5; // the press's expected share of a wave's bodies (3–5 against 2–3)
+const PRESS_SPREAD = 1.6;
+const PRESS_GAP = 0.85, BREATH_GAP = 1.2;  // spawn-gap multipliers inside each phrase
+const PRESS_PAIR = 1.3;                    // pincer chance inside a press (× pairChance, capped)
+// Combinations: from act VI (and on the deep road) a press may open with two
+// questions scripted to meet — a shielder and a thrower arriving together from
+// both sides, or the twins right behind a fencer's window.
+const COMBO_ACT = 6;
+const COMBO_CHANCE = 0.35;
+// Clumping rules: never more than ELITE_RUN elites in a row on one side (the
+// next one there is a light body), and THROW_SPACE seconds between two
+// throwers' arrivals — their shuriken would otherwise land as one.
+const ELITE_RUN = 2;
+const THROW_SPACE = 0.9;
+const DEBUT_SLOTS = [3, 9];
+const DEBUT_LEAD = 1.6;
+const DEBUT_ROOM = 2.4;
+function actDebuts(r) {
+  if (r.wave !== 1 || r.act < 2 || r.act > ACTS.length) return [];
+  // new to the CAMPAIGN, not just to the act: the mimic skips the maglev and
+  // comes back on the ship — a return, not a debut
+  const seen = new Set(ACT_WEIGHTS.slice(0, r.act - 1).flatMap(w => Object.keys(w)));
+  return Object.keys(ACT_WEIGHTS[r.act - 1]).filter(t => !seen.has(t));
+}
+
 // Wave generation. Choreography is defined by ARRIVAL time into the strike zone
 // (solvability guarantee): intervals are planned at zone entry, and each enemy's
 // spawn moment is back-computed from its speed. Otherwise a fast drone
@@ -1158,7 +1214,9 @@ function buildWave(s) {
   let size = waveSize(r);
   let weights = waveWeights(r); // campaign tables, drifting deep past the summit
   let gapMul = 1;
+  const debuts = actDebuts(r); // staged in order at DEBUT_SLOTS; a squall wave has none
   if (mutHas(r, 'squall')) {
+    debuts.length = 0;
     // squall: many light enemies, packed tighter
     size = Math.min(46, Math.round(size * SQUALL_SIZE));
     weights = { drone: 6, punk: 2.5 };
@@ -1169,43 +1227,112 @@ function buildWave(s) {
   let lastAny = -Infinity; // last arrival from either side
   let arr = 0; // arrival timeline; the whole wave is shifted to a normal start at the end
   let side = rndPlan(r) < 0.5 ? -1 : 1;
-  let sinceLull = 0; // enemies since the last breather
   // The fencer is the road's slowest question — his duel holds his column
   // while guard and window play out, and fencers stacked close stall the
   // whole street. The spacing is counted in TIME, not slots: a slot cooldown
   // leaked through pincers, which compress several slots into one instant.
   // A new fencer may only be drawn once the arrival cursor has moved a full
   // window cycle past the previous fencer's arrival — however many pincer
-  // partners and twins landed in between. The draw count is unchanged, so
-  // the plan stream stays aligned.
+  // partners and twins landed in between. The thrower keeps his own, shorter
+  // spacing (THROW_SPACE).
   const fenSpace = FENCER_GUARD + FENCER_OPEN;
-  let lastFenArr = -Infinity;
+  let lastFenArr = -Infinity, lastThrowArr = -Infinity;
+  let quietUntil = -Infinity, prevDebut = false, staged = 0; // the room a staged newcomer keeps after itself
+  // the phrase pools: elites weighed up in the press, down (to none, early on) in the breather
+  const lightW = {};
+  let eliteSum = 0, allSum = 0;
+  for (const t in weights) {
+    allSum += weights[t];
+    if (ELITE.has(t)) eliteSum += weights[t]; else lightW[t] = weights[t];
+  }
+  const eShare = allSum ? eliteSum / allSum : 0;
+  const pShare = Math.min(PRESS_MAX, eShare * PRESS_SPREAD);
+  const bRest = (eShare - PHRASE_PRESS * pShare) / (1 - PHRASE_PRESS);
+  const bShare = bRest < 0.05 ? 0 : bRest; // a sliver is rounding, not a remainder — the breather stays clean
+  // scale the elites so that they make up `share` of the pool, the light ones keep their ratios
+  const tilt = share => {
+    const k = eShare > 0 && eShare < 1 && share > 0 ? share * (1 - eShare) / (eShare * (1 - share)) : 0;
+    const w = {};
+    for (const t in weights) {
+      const v = weights[t] * (ELITE.has(t) ? k : 1);
+      if (v > 0) w[t] = v;
+    }
+    return Object.keys(w).length ? w : weights;
+  };
+  const pressW = eShare > 0 && eShare < 1 ? tilt(pShare) : weights;
+  const breathW = eShare > 0 && eShare < 1 ? tilt(bShare) : weights;
+  let phrase = 'breath', phraseLeft = 2 + Math.floor(rndPlan(r) * 2);
+  let combo = []; // the scripted pair at the head of a press, consumed in order
+  const streak = { '-1': 0, '1': 0 }; // elites in a row on each side
+  const lightPick = () => weightedPick(s, Object.keys(lightW).length ? lightW : { drone: 1 });
   r.waveTotal = size; // actual wave size (mutators change it) — the nanovampirism threshold
   for (let i = 0; i < size; i++) {
-    // ragged rhythm: every 5–8 enemies — a breather pause, the crowd comes in bursts
-    if (++sinceLull >= 5 + Math.floor(rndPlan(r) * 4)) {
-      arr += spawnGap(r) * 2.2 * gapMul;
-      sinceLull = 0;
+    if (phraseLeft <= 0) {
+      if (phrase === 'press') {
+        arr += spawnGap(r) * 2.2 * gapMul; // the lull between a press and the next breather
+        phrase = 'breath';
+        phraseLeft = 2 + Math.floor(rndPlan(r) * 2);
+      } else {
+        phrase = 'press';
+        phraseLeft = 3 + Math.floor(rndPlan(r) * 3);
+        if (r.act >= COMBO_ACT && !mutHas(r, 'squall') && rndPlan(r) < COMBO_CHANCE) {
+          const opts = [];
+          if (weights.shield && weights.thrower && arr >= lastThrowArr + THROW_SPACE) {
+            opts.push([{ type: 'shield' }, { type: 'thrower', pincer: true }]);
+          }
+          if (weights.fencer && weights.twin && i < size - 2 && arr >= lastFenArr + fenSpace) {
+            opts.push([{ type: 'fencer' }, { type: 'twin', afterFencer: true }]);
+          }
+          if (opts.length) combo = opts[Math.floor(rndPlan(r) * opts.length)];
+        }
+      }
     }
-    let pool = weights;
-    if (weights.fencer && arr < lastFenArr + fenSpace) {
-      pool = { ...weights };
-      delete pool.fencer;
-    }
+    phraseLeft--;
+    const press = phrase === 'press';
+    const gm = gapMul * (press ? PRESS_GAP : BREATH_GAP);
+    if (arr < quietUntil) arr = quietUntil;
+    let pool = { ...(press ? pressW : breathW) };
+    if (arr < lastFenArr + fenSpace) delete pool.fencer;
+    if (arr < lastThrowArr + THROW_SPACE) delete pool.thrower;
+    // a newcomer still waiting for its staged entrance is not drawn by chance before it
+    for (const t of debuts) delete pool[t];
+    if (!Object.keys(pool).length) pool = { drone: 1 };
     let type = weightedPick(s, pool);
+    const debut = debuts.length > 0 && i >= DEBUT_SLOTS[staged] &&
+      (debuts[0] !== 'twin' || i < size - 1);
+    let forced = null;
+    if (debut) {
+      type = debuts.shift();
+      staged++;
+      combo = []; // the introduction owns the moment
+      arr = Math.max(arr, lastAny + DEBUT_LEAD);
+    } else if (combo.length) {
+      forced = combo.shift();
+      type = forced.type;
+    }
+    if (type === 'twin' && !debut && !forced && (streak['-1'] >= ELITE_RUN || streak['1'] >= ELITE_RUN)) {
+      type = lightPick(); // a pair would be the third elite in a row on one side
+    }
     if (type === 'twin') {
       // twins come as a mirrored pair on both sides simultaneously (2 slots)
       if (i >= size - 1) type = 'drone'; // not enough room for a pair
       else {
-        arr += spawnGap(r) * (0.75 + rndPlan(r) * 0.5) * gapMul;
+        if (forced && forced.afterFencer) arr = Math.max(arr, lastFenArr + fenSpace); // right behind his window
+        arr += spawnGap(r) * (0.75 + rndPlan(r) * 0.5) * gm;
         const arrT = Math.max(arr, lastArr['-1'] + minGap, lastArr['1'] + minGap, lastAny + anyGap);
         lastArr['-1'] = lastArr['1'] = arrT;
         lastAny = arrT;
         if (arrT > arr) arr = arrT;
         const dist = SPAWN_DIST * (0.92 + rndPlan(r) * 0.16);
         const travel = (dist - zone) / (ENEMY_TYPES.twin.speed * sm);
-        q.push({ at: arrT - travel, arr: arrT, type: 'twin', side: -1, dist, pair: i });
-        q.push({ at: arrT - travel, arr: arrT, type: 'twin', side: 1, dist, pair: i });
+        // ph/combo/debut/ord: how the plan was built — read by tests only, never by the sim
+        const tag = { ph: press ? 1 : 0, combo: forced ? 1 : 0, debut: debut ? 1 : 0, ord: q.length };
+        q.push({ at: arrT - travel, arr: arrT, type: 'twin', side: -1, dist, pair: i, ...tag });
+        q.push({ at: arrT - travel, arr: arrT, type: 'twin', side: 1, dist, pair: i, ...tag });
+        streak['-1']++; streak['1']++;
+        if (debut) quietUntil = arrT + DEBUT_ROOM;
+        prevDebut = debut;
+        phraseLeft--; // the pair takes two of the phrase's bodies
         i++;
         continue;
       }
@@ -1215,7 +1342,12 @@ function buildWave(s) {
     // PREVIOUS pick's arrival time, which would drop his duel behind the
     // spacing rule above — and a duel opening simultaneously with another
     // body is exactly the stall the rule exists to prevent
-    if (i > 0 && q.length && type !== 'fencer' && rndPlan(r) < pairCh) {
+    // ...nor does a newcomer on its staged entrance, nor anyone beside it.
+    // A breather never pincers; a press does more often; a combo's thrower always.
+    const pin = forced && forced.pincer && q.length ? true
+      : press && i > 0 && q.length && type !== 'fencer' && !debut && !prevDebut &&
+        rndPlan(r) < Math.min(0.68, pairCh * PRESS_PAIR);
+    if (pin) {
       // pincers: same arrival, opposite side — a deliberate test
       const prev = q[q.length - 1];
       thisSide = -prev.side;
@@ -1224,9 +1356,11 @@ function buildWave(s) {
       // the side switches more often than it stays — no single-button turkey shoot
       side = rndPlan(r) < 0.62 ? -side : side;
       thisSide = side;
-      arr += spawnGap(r) * (0.75 + rndPlan(r) * 0.5) * gapMul;
+      arr += spawnGap(r) * (0.75 + rndPlan(r) * 0.5) * gm;
       thisArr = arr;
     }
+    // the third elite in a row on this side stands down for a light body
+    if (ELITE.has(type) && !debut && !forced && streak[thisSide] >= ELITE_RUN) type = lightPick();
     // solvability guarantee: per side no denser than minGap; combined no denser than anyGap
     // (pincers arrive simultaneously on purpose and bypass the global limit)
     thisArr = Math.max(thisArr, lastArr[thisSide] + minGap);
@@ -1238,8 +1372,13 @@ function buildWave(s) {
     const travel = (dist - zone) / (ENEMY_TYPES[type].speed * sm);
     // a mimic rolls real-or-phantom at planning time; hidden until it nears the zone
     const phantom = type === 'mimic' && rndPlan(r) < MIMIC_PHANTOM;
-    q.push({ at: thisArr - travel, arr: thisArr, type, side: thisSide, dist, phantom });
+    q.push({ at: thisArr - travel, arr: thisArr, type, side: thisSide, dist, phantom,
+      ph: press ? 1 : 0, combo: forced ? 1 : 0, debut: debut ? 1 : 0, ord: q.length });
+    streak[thisSide] = ELITE.has(type) ? streak[thisSide] + 1 : 0;
     if (type === 'fencer') lastFenArr = thisArr;
+    if (type === 'thrower') lastThrowArr = thisArr;
+    if (debut) quietUntil = thisArr + DEBUT_ROOM;
+    prevDebut = debut;
   }
   // Seals go on in a second pass, after the crowd is choreographed: the rolls
   // sit at the tail of the planning stream, so a seed keeps the wave it always
@@ -1855,6 +1994,10 @@ function applyDash(s, side, m) {
     // approach — a kill-dash that teleported the stance to point-blank played
     // the window at a range where the lunge was effectively unanswerable.
     if (e.fstate && e.side === side && e.dist < holdD) e.dist = Math.min(before, holdD);
+    // ...and a cut the other way does not carry the hero out of a duel already
+    // joined: the stanced fencer keeps his measure behind the hero's back
+    // (2026-10-17). Before, any strike away was a free escape from his window.
+    if (e.fstate && e.side !== side) e.dist = before;
     // The same contract for a winding thrower: he planted his feet to throw,
     // and the dash must not slide him closer while he stands — on screen he
     // was a statue moonwalking after the hero. He throws from where he
@@ -3025,7 +3168,7 @@ const Game = {
   GUARD_REPEL, HACK_TIMER, JAM_WINDUP, JAM_PROJ,
   anyArrGap, KILL_PUSH, DASH_STOP, DASH_HIT, applyDash,
   THROW_WINDUP, projSpeedMult, FENCER_GUARD, FENCER_OPEN, CHORD_WIN,
-  TEACH_CHORDS, TEACH_GLITCH, TEACH_MIMIC, TEACH_STANCE,
+  TEACH_CHORDS, TEACH_GLITCH, TEACH_MIMIC, TEACH_STANCE, TEACH_FENCER, TEACH_THROW, actDebuts, DEBUT_LEAD, DEBUT_ROOM, ELITE, ELITE_RUN, THROW_SPACE, COMBO_ACT,
   setWay, wayHard, dailySlot, monthlySlot, RIPOSTE_HOLD, MOMENTUM_EVERY,
   STANCES, STANCE_CD, STANCE_ACT, PIERCE_ACT, STANCE_ARMOR, stanceBites, bodyBites, stancesOn, stanceUnlocked, stanceFor,
   SEAL_ACT, SEAL_CHANCE, SEAL_PER_WAVE,

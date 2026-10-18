@@ -15,6 +15,7 @@ const Scene = (() => {
   // Marks that ride on a body (pips, «!», shadows, the lock-on box, the corpse
   // cut, the drone's hover) are in S units and multiply by FIG_K to stay on it.
   const FIG_K = 1.1;
+  const FIG_DROP = 8; // px (×S) the fighters stand below groundY — see render()
   // The Warden's sprite is drawn a head taller than the hero right in its cells,
   // so he shares everyone's pixel density. BOSS_K is how much bigger his body is
   // than a humanoid's — the corpse cut, the glint box and his shadow scale by it.
@@ -1065,52 +1066,154 @@ const Scene = (() => {
   // ...)` four branches deep, so adding a location meant editing a conditional
   // every other location also lived inside. A scene names its landmark now and
   // the drawing is looked up.
+  // ---- shared strokes of the landmarks (pagoda, torii, the corner branch)
+  // An upswept roof: eave tips lifted, the top concave up to a short ridge.
+  function lmRoof(cx, y, w, lift, depth, fill) {
+    const L = cx - w / 2, R = cx + w / 2, rw = w * 0.28;
+    ctx.beginPath();
+    ctx.moveTo(L, y - lift);
+    ctx.quadraticCurveTo(cx - w * 0.32, y + 3, cx, y + 3);
+    ctx.quadraticCurveTo(cx + w * 0.32, y + 3, R, y - lift);
+    ctx.quadraticCurveTo(cx + w * 0.3, y - depth * 0.35, cx + rw, y - depth);
+    ctx.lineTo(cx - rw, y - depth);
+    ctx.quadraticCurveTo(cx - w * 0.3, y - depth * 0.35, L, y - lift);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  // A paper lantern on a short cord, swinging on its own phase.
+  function lmLantern(x, y, t, ph, col) {
+    const sw = Math.sin(t * 1.6 + ph) * 2.5;
+    ctx.strokeStyle = 'rgba(20, 10, 20, 0.9)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + sw, y + 9); ctx.stroke();
+    ctx.save();
+    ctx.fillStyle = col;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.ellipse(x + sw, y + 13, 3.2, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  // The finial: a mast with rings and a beacon that pulses.
+  function lmSpire(x, y, t, len, rings, col) {
+    ctx.strokeStyle = 'rgba(12, 10, 22, 0.95)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - len); ctx.stroke();
+    ctx.strokeStyle = 'rgba(40, 34, 60, 1)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < rings; i++) {
+      const yy = y - 8 - i * (len - 20) / rings, w = 9 - i * 0.5;
+      ctx.beginPath(); ctx.moveTo(x - w, yy); ctx.lineTo(x + w, yy); ctx.stroke();
+    }
+    ctx.save();
+    ctx.fillStyle = col;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = Math.sin(t * 2.2) > 0.4 ? 14 : 4;
+    ctx.beginPath(); ctx.ellipse(x, y - len - 4, 3, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  // A five-petal sakura flower with a soft pink glow and a pale centre.
+  function sakuraFlower(x, y, r, rot, alpha, blur) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.fillStyle = 'rgb(255, 170, 228)';
+    ctx.shadowColor = 'rgba(255, 122, 217, 0.9)';
+    ctx.shadowBlur = blur;
+    for (let k = 0; k < 5; k++) {
+      ctx.rotate(Math.PI * 2 / 5);
+      ctx.beginPath(); ctx.ellipse(0, -r * 0.6, r * 0.42, r * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgb(255, 235, 180)';
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.22, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  // The torii's sakura, grown once: a seeded recursive tree, coordinates relative to
+  // the foot of the trunk. Same seed and steps as the lab page, so it is that tree.
+  const NEON_SAKURA = (() => {
+    let seed = 11;
+    const r = () => {
+      seed = seed + 0x6D2B79F5 | 0;
+      let q = Math.imul(seed ^ seed >>> 15, 1 | seed);
+      q = q + Math.imul(q ^ q >>> 7, 61 | q) ^ q;
+      return ((q ^ q >>> 14) >>> 0) / 4294967296;
+    };
+    const seg = [], tips = [];
+    (function go(x, y, len, ang, w, d) {
+      const ex = x + Math.cos(ang) * len, ey = y + Math.sin(ang) * len;
+      const mx = x + Math.cos(ang + (r() - 0.5) * 0.6) * len * 0.5, my = y + Math.sin(ang + (r() - 0.5) * 0.6) * len * 0.5;
+      seg.push({ x, y, mx, my, ex, ey, w });
+      if (d === 0) { tips.push({ x: ex, y: ey, ph: r() * 7, r: 16 + r() * 12 }); return; }
+      const n = d > 2 ? 2 : 2 + (r() < 0.5);
+      for (let i = 0; i < n; i++) {
+        const a = ang + (i - (n - 1) / 2) * 0.62 + (r() - 0.5) * 0.4;
+        go(ex, ey, len * (0.68 + r() * 0.12), a, w * 0.64, d - 1);
+        if (d <= 2 && r() < 0.5) tips.push({ x: (x + ex) / 2, y: (y + ey) / 2, ph: r() * 7, r: 12 + r() * 8 });
+      }
+    })(0, 0, 62, -1.52, 13, 4);
+    return { seg, tips };
+  })();
+
   const LANDMARKS = {
     pagoda(tile, t, P) {
-
-      // pagoda skyscraper with neon tiers
+      // A wooden five-storey pagoda: a stone plinth, deep upswept roofs far wider
+      // than the storeys under them, warm light behind paper screens, little bells
+      // at the eave tips and a moon rim on each roof. Neon only on the finial —
+      // the one old thing in the street that does not sell anything. Picked over
+      // the neon-tier tower in tools/scene/landmarks-lab.html (2026-10-17).
       for (const off of [0, -P]) {
         const x = tile(P * 0.55, 0.35) + off;
         if (x < -240 || x > W + 60) continue;
-        const baseW = 150;
-        let w = baseW, y = groundY, h;
+        const cx = x + 75;
+        let y = groundY;
         ctx.save();
-        for (let i = 0; i < 6; i++) {
-          h = 62 - i * 6;
-          ctx.fillStyle = 'rgba(7, 7, 18, 0.92)';
-          ctx.fillRect(x + (baseW - w) / 2, y - h, w, h);
-          const rw = w + 28, rx = x + (baseW - rw) / 2;
-          ctx.beginPath();
-          ctx.moveTo(rx - 7, y - h);
-          ctx.quadraticCurveTo(x + baseW / 2, y - h - 18, rx + rw + 7, y - h);
-          ctx.lineTo(rx + rw - 12, y - h + 9);
-          ctx.lineTo(rx + 12, y - h + 9);
-          ctx.closePath();
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(255, 45, 120, 0.45)';
-          ctx.lineWidth = 1.4;
-          ctx.beginPath();
-          ctx.moveTo(rx - 7, y - h);
-          ctx.quadraticCurveTo(x + baseW / 2, y - h - 18, rx + rw + 7, y - h);
-          ctx.stroke();
-          // warm tier windows
-          ctx.fillStyle = 'rgba(255, 210, 150, 0.25)';
-          for (let wx = x + (baseW - w) / 2 + 8; wx < x + (baseW + w) / 2 - 8; wx += 12) {
-            ctx.fillRect(wx, y - h + 14, 4, 6);
-          }
-          y -= h + 12; w -= 16;
-        }
-        // spire with a beacon
-        ctx.strokeStyle = 'rgba(255, 45, 120, 0.7)';
+        ctx.fillStyle = 'rgba(16, 14, 26, 0.96)';
         ctx.beginPath();
-        ctx.moveTo(x + baseW / 2, y);
-        ctx.lineTo(x + baseW / 2, y - 30);
-        ctx.stroke();
-        if (Math.sin(t * 2.2) > 0.4) {
-          ctx.fillStyle = '#ff2d78';
-          ctx.shadowColor = '#ff2d78';
-          ctx.shadowBlur = 8;
-          ctx.fillRect(x + baseW / 2 - 2, y - 34, 4, 4);
+        ctx.moveTo(cx - 92, y); ctx.lineTo(cx + 92, y); ctx.lineTo(cx + 80, y - 18); ctx.lineTo(cx - 80, y - 18);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(140, 150, 200, 0.25)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(cx - 80, y - 18); ctx.lineTo(cx + 80, y - 18); ctx.stroke();
+        y -= 18;
+        for (let i = 0; i < 5; i++) {
+          const bw = 74 - i * 8, bh = 40 - i * 3;
+          ctx.fillStyle = 'rgba(14, 9, 14, 0.97)';
+          ctx.fillRect(cx - bw / 2, y - bh, bw, bh);
+          if (i < 4) { // the lit screen and its lattice
+            const ow = bw * 0.42;
+            ctx.save();
+            ctx.fillStyle = 'rgba(255, 180, 110, 0.55)';
+            ctx.shadowColor = 'rgba(255, 170, 90, 0.8)';
+            ctx.shadowBlur = 10;
+            ctx.fillRect(cx - ow / 2, y - bh + 9, ow, bh - 15);
+            ctx.restore();
+            ctx.fillStyle = 'rgba(14, 9, 14, 1)';
+            for (let k = 1; k < 4; k++) ctx.fillRect(cx - bw * 0.21 + k * bw * 0.105 - 1, y - bh + 9, 2, bh - 15);
+          }
+          const rw = bw * 2.15;
+          lmRoof(cx, y - bh, rw, 18, 20, 'rgba(10, 7, 12, 0.98)');
+          ctx.strokeStyle = 'rgba(170, 180, 255, 0.22)'; // moon rim on the roof's left slope
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(cx - rw / 2, y - bh - 18);
+          ctx.quadraticCurveTo(cx - rw * 0.3, y - bh - 7, cx - rw * 0.28, y - bh - 20);
+          ctx.stroke();
+          ctx.fillStyle = 'rgba(255, 200, 120, 0.9)'; // bells at the eave tips
+          ctx.fillRect(cx - rw / 2 - 1, y - bh - 19, 3, 3);
+          ctx.fillRect(cx + rw / 2 - 2, y - bh - 19, 3, 3);
+          y -= bh + 20;
+        }
+        lmSpire(cx, y, t, 70, 9, '#ff2d78');
+        for (const sd of [-1, 1]) {
+          ctx.strokeStyle = 'rgba(20, 12, 20, 1)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(cx + sd * 110, groundY); ctx.lineTo(cx + sd * 110, groundY - 46); ctx.lineTo(cx + sd * 100, groundY - 46);
+          ctx.stroke();
+          lmLantern(cx + sd * 110, groundY - 46, t, sd > 0 ? 1 : 0, '#ff5a3c');
         }
         ctx.restore();
       }
@@ -1167,46 +1270,89 @@ const Scene = (() => {
       ctx.restore();
     },
     torii(tile, t, P) {
-
-      // giant torii and a neon sakura
+      // A dark torii traced in red neon tubes — pillars, both tie beams, the
+      // upswept kasagi and the plaque; one tube catches a flicker now and then —
+      // and beside it a sakura in the same grammar: dark limbs with a neon rim and
+      // a few glowing flowers. Picked in tools/scene/landmarks-lab.html (2026-10-17).
       for (const off of [0, -P]) {
         const x = tile(P * 0.5, 0.35) + off;
-        if (x < -320 || x > W + 60) continue;
-        const h = H * 0.56, y0 = groundY, pw = 24, span = 270;
-        ctx.save();
-        ctx.fillStyle = 'rgba(34, 9, 17, 0.97)';
-        ctx.strokeStyle = 'rgba(255, 61, 94, 0.55)';
-        ctx.lineWidth = 1.6;
-        for (const px of [x, x + span - pw]) {
-          ctx.fillRect(px, y0 - h + 26, pw, h - 26);
-          ctx.strokeRect(px, y0 - h + 26, pw, h - 26);
-        }
-        // lower crossbeam
-        ctx.fillRect(x - 10, y0 - h + 44, span + 20, 13);
-        // upper one, with lifted ends
-        ctx.beginPath();
-        ctx.moveTo(x - 34, y0 - h + 10);
-        ctx.quadraticCurveTo(x + span / 2, y0 - h - 16, x + span + 34 - pw + pw, y0 - h + 10);
-        ctx.lineTo(x + span + 26, y0 - h + 26);
-        ctx.lineTo(x - 26, y0 - h + 26);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        // a neon sakura nearby
-        const tx = x + span + 90;
-        ctx.strokeStyle = 'rgba(20, 8, 12, 0.95)';
-        ctx.lineWidth = 7;
-        ctx.beginPath();
-        ctx.moveTo(tx, groundY);
-        ctx.quadraticCurveTo(tx + 14, groundY - 70, tx - 12, groundY - 130);
-        ctx.stroke();
-        ctx.fillStyle = 'rgba(255, 122, 217, 0.30)';
-        for (let i = 0; i < 26; i++) {
-          const a = i * 2.4, r = 18 + (i * 37) % 52;
+        if (x < -480 || x > W + 60) continue; // the tree stands 360px right of x
+        const h = H * 0.56, y0 = groundY, pw = 24, span = 270, top = y0 - h, mid = x + span / 2;
+        const N = 'rgb(255, 52, 84)', F = 'rgba(16, 6, 10, 0.97)';
+        const flick = Math.sin(t * 9) > 0.93 || Math.sin(t * 23) > 0.97;
+        const kasagi = () => {
           ctx.beginPath();
-          ctx.arc(tx - 12 + Math.cos(a) * r, groundY - 150 + Math.sin(a) * r * 0.55, 5 + (i % 3) * 3, 0, 7);
-          ctx.fill();
+          ctx.moveTo(x - 46, top - 6);
+          ctx.quadraticCurveTo(mid, top + 26, x + span + 46, top - 6);
+          ctx.lineTo(x + span + 50, top - 24);
+          ctx.quadraticCurveTo(mid, top + 4.8, x - 50, top - 24);
+          ctx.closePath();
+        };
+        const tube = (path, dim) => {
+          ctx.save();
+          ctx.strokeStyle = dim ? 'rgba(120, 30, 45, 0.6)' : N;
+          ctx.shadowColor = N;
+          ctx.shadowBlur = dim ? 0 : 12;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          path();
+          ctx.stroke();
+          ctx.restore();
+        };
+        ctx.save();
+        ctx.fillStyle = F;
+        for (const px of [x, x + span - pw]) ctx.fillRect(px, top + 30, pw, h - 30);
+        ctx.fillRect(x - 26, top + 82, span + 52, 14);   // nuki, the lower tie, through the pillars
+        ctx.fillRect(x - 14, top + 30, span + 28, 14);   // shimaki under the kasagi
+        ctx.fillRect(mid - 6, top + 44, 12, 40);         // the plaque's strut
+        kasagi();
+        ctx.fill();
+        for (const px of [x, x + span - pw]) {
+          tube(() => { ctx.moveTo(px + 3, y0); ctx.lineTo(px + 3, top + 30); ctx.moveTo(px + pw - 3, y0); ctx.lineTo(px + pw - 3, top + 30); });
         }
+        tube(() => ctx.rect(x - 26, top + 84, span + 52, 10), flick);
+        tube(() => {
+          ctx.moveTo(x - 46, top - 6); ctx.quadraticCurveTo(mid, top + 26, x + span + 46, top - 6);
+          ctx.moveTo(x - 50, top - 24); ctx.quadraticCurveTo(mid, top + 7, x + span + 50, top - 24);
+        });
+        tube(() => ctx.rect(x - 14, top + 32, span + 28, 10));
+        ctx.fillStyle = F;
+        ctx.fillRect(mid - 18, top + 46, 36, 46);
+        tube(() => ctx.rect(mid - 15, top + 49, 30, 40));
+        ctx.fillStyle = N;
+        ctx.shadowColor = N;
+        ctx.shadowBlur = 12;
+        ctx.font = 'bold 22px serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('禅', mid, top + 70);
+        ctx.restore();
+        // the neon sakura
+        const tx = x + span + 90;
+        ctx.save();
+        ctx.lineCap = 'round';
+        for (const sg of NEON_SAKURA.seg) {
+          ctx.strokeStyle = 'rgba(14, 6, 12, 0.98)';
+          ctx.lineWidth = sg.w;
+          ctx.beginPath();
+          ctx.moveTo(tx + sg.x, y0 + sg.y);
+          ctx.quadraticCurveTo(tx + sg.mx, y0 + sg.my, tx + sg.ex, y0 + sg.ey);
+          ctx.stroke();
+          ctx.save();
+          ctx.strokeStyle = 'rgba(255, 61, 150, 0.75)';
+          ctx.shadowColor = 'rgba(255, 61, 150, 0.75)';
+          ctx.shadowBlur = 8;
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(tx + sg.x - sg.w * 0.3, y0 + sg.y - sg.w * 0.3);
+          ctx.quadraticCurveTo(tx + sg.mx - sg.w * 0.3, y0 + sg.my - sg.w * 0.3, tx + sg.ex, y0 + sg.ey);
+          ctx.stroke();
+          ctx.restore();
+        }
+        NEON_SAKURA.tips.forEach((c, i) => {
+          if (i % 2) return;
+          sakuraFlower(tx + c.x, y0 + c.y, 6 + (i % 3), c.ph, 0.6 + 0.4 * Math.sin(t * 2 + c.ph), 8);
+        });
         ctx.restore();
       }
     }
@@ -3111,73 +3257,35 @@ const Scene = (() => {
   // than anything else on screen, which is the whole point: a plane that slides
   // past quicker than the city is a plane the eye places in front of it. Stays
   // in the top third; see the rig's note in buildBgCache for why.
-  // A sakura branch framing the top-left corner. Foreground foliage: it lives in the
-  // upper region, never reaches the fighting band, and it does not scroll — the whole
-  // limb rotates a few hundredths of a radian about its corner anchor, so the tips
-  // (farthest from the pivot) drift most, exactly as a real branch would. Drawn after
-  // the fighters, so it reads as the nearest thing on screen.
+  // A sakura branch framing the top-left corner, in ink: a thin angular limb with a
+  // few big five-petal flowers and buds (geometry in bgcache.js). Foreground foliage:
+  // it lives in the upper region, never reaches the fighting band, and it does not
+  // scroll — the whole limb rotates a few hundredths of a radian about its corner
+  // anchor, so the tips drift most, exactly as a real branch would. Drawn after the
+  // fighters, so it reads as the nearest thing on screen.
   function drawBranch(t) {
-    if (!fx0.foreground || !has('branch') || !bgCache || !bgCache.branch.limb.length) return;
-    const br = bgCache.branch;
-    const th = Math.sin(t * 0.55) * 0.026 + Math.sin(t * 1.7) * 0.011; // sway angle
-    const ax = br.limb[0].x * W, ay = br.limb[0].y * H;
-    const cs = Math.cos(th), sn = Math.sin(th);
-    const M = n => {
-      const x = n.x * W - ax, y = n.y * H - ay;
-      return { x: ax + x * cs - y * sn, y: ay + x * sn + y * cs };
-    };
-
+    if (!fx0.foreground || !has('branch') || !bgCache || !bgCache.branch.seg.length) return;
+    const br = bgCache.branch, k = H / 720; // the geometry is in units of a 720-tall frame
+    const th = Math.sin(t * 0.55) * 0.02 + Math.sin(t * 1.7) * 0.008; // sway angle
     ctx.save();
-    // limb: a dark tapering silhouette from the corner outward
-    ctx.strokeStyle = 'rgba(10, 6, 12, 0.97)';
+    ctx.translate(-20 * k, -20 * k);
+    ctx.scale(k, k);
+    ctx.rotate(th);
+    ctx.translate(20, 20);
+    ctx.strokeStyle = 'rgba(8, 5, 10, 0.98)';
     ctx.lineCap = 'round';
-    for (let i = 0; i < br.limb.length - 1; i++) {
-      const a = M(br.limb[i]), b = M(br.limb[i + 1]);
-      ctx.lineWidth = (14 - i * 1.7) * S;
+    for (const sg of br.seg) {
+      ctx.lineWidth = sg.w;
       ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
+      ctx.moveTo(sg.x1, sg.y1);
+      ctx.lineTo(sg.x2, sg.y2);
       ctx.stroke();
     }
-    // twigs, thinner
-    ctx.strokeStyle = 'rgba(12, 7, 13, 0.96)';
-    for (const tw of br.twigs) {
-      const a = M({ x: tw.x1, y: tw.y1 }), b = M({ x: tw.x2, y: tw.y2 });
-      ctx.lineWidth = Math.max(2.2, tw.w * 1.3) * S;
+    for (const f of br.flowers) sakuraFlower(f.x, f.y, 11, f.ph + Math.sin(t + f.ph) * 0.05, 0.95, 8 * k);
+    ctx.fillStyle = 'rgb(220, 70, 150)';
+    for (const b of br.buds) {
       ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-    }
-    // blossoms: a soft dark mass with brighter petals catching the moon on top of it
-    for (const bl of br.blossoms) {
-      const p = M(bl);
-      // the cluster breathes on its own phase and drifts a hair extra at the tips
-      const breath = 0.85 + 0.15 * Math.sin(bl.ph + t * 1.3);
-      const r = bl.r * W * breath;
-      const px = p.x + Math.sin(t * 1.4 + bl.ph) * bl.lean * 2.2 * S;
-      // shadowed underside of the cluster
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle = 'rgba(74, 26, 54, 1)';
-      ctx.beginPath();
-      ctx.arc(px, p.y, r, 0, 7);
-      ctx.fill();
-      // lit petals — a few overlapping blobs, moon side brighter
-      for (let k = 0; k < 5; k++) {
-        const a = bl.ph + k * 1.257;
-        const rr2 = r * (0.42 + (k % 3) * 0.12);
-        const dx = Math.cos(a) * r * 0.5, dy = Math.sin(a) * r * 0.5;
-        ctx.globalAlpha = 0.32;
-        ctx.fillStyle = 'rgba(255, 122, 217, 1)';
-        ctx.beginPath();
-        ctx.arc(px + dx, p.y + dy, rr2, 0, 7);
-        ctx.fill();
-      }
-      // a single bright core
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle = 'rgba(255, 190, 235, 1)';
-      ctx.beginPath();
-      ctx.arc(px, p.y - r * 0.15, r * 0.28, 0, 7);
+      ctx.ellipse(b.x, b.y, 3, 4.5, b.ph, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
@@ -4398,7 +4506,6 @@ const Scene = (() => {
       // slab pose stays (he crosses the road behind it), the lime halo above
       // counts his remaining hits, and the flight itself draws the wake
       if (!spriteDrawn) stickman(x, groundY, { color: eColor('adapt'), face, phase: ph, pose: 'shield', scale: 1.15 });
-      ctx.restore();
     } else if (e.type === 'twin') {
       const touched = run && run.twinPress && run.twinPress.pair === e.pair && run.twinPress.side === e.side;
       if (!spriteDrawn) stickman(x, groundY, {
@@ -4781,7 +4888,10 @@ const Scene = (() => {
   // teach — the player has not yet proven they can read a lying link
   function drawQte(b, teach) {
     const n = b.seq.length;
-    const size = 30 * S, gap = 48 * S;
+    // 1.8 chains run to 14 links: on a narrow screen the row tightens to fit
+    // 90% of the width, and the chevrons shrink with the gap
+    const fit = Math.min(1, (W * 0.9) / Math.max(1, (n - 1) * 48 * S));
+    const size = 30 * S * Math.max(0.7, fit), gap = 48 * S * fit;
     const totalW = (n - 1) * gap;
     // The chain sits low, at the fighter's feet, not up in the sky — the eye is on
     // the duel down here, and a sequence floating in the top third pulled it away
@@ -5288,16 +5398,28 @@ const Scene = (() => {
     }
     lastWX = st8.run && st8.phase === 'combat' ? wxT : null;
     ctx.save();
+    let ox = 0, oy = 0;
     if (fx.shake > 0.2) {
-      ctx.translate((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake);
+      ox = (Math.random() - 0.5) * fx.shake; oy = (Math.random() - 0.5) * fx.shake;
       fx.shake *= Math.pow(0.001, dt); // fast decay
     } else fx.shake = 0;
     // impact kick: the frame dragged a few pixels along the last landed swing.
     // Purely horizontal and gone in ~100ms — it punctuates, it never disorients.
     if (Math.abs(fx.kick) > 0.2) {
-      ctx.translate(fx.kick, 0);
+      ox += fx.kick;
       fx.kick *= Math.pow(0.0005, dt); // dt is 0 under hitstop: the kick holds, then snaps back
     } else fx.kick = 0;
+    // Nothing clears the canvas under the frame, so a shifted frame left its
+    // edge to stale pixels — a thin white bar at the left after a flashed hit.
+    // Zoom from the centre just enough to cover the shift (under 1% for a kick).
+    // The carriage sway below shifts it too, by up to 1.35 × sway.
+    const swayPx = (scene().sway || 0) * 1.35;
+    if (ox || oy || swayPx) {
+      const k = 1 + 2 * Math.max(Math.abs(ox) / W, (Math.abs(oy) + swayPx) / H);
+      ctx.translate(W / 2 + ox, H / 2 + oy);
+      ctx.scale(k, k);
+      ctx.translate(-W / 2, -H / 2);
+    }
     // punch zoom: a heartbeat of scale around the fighting band on heavy moments
     if (fx.punch > 0.001) {
       const py = groundY - 40 * S;
@@ -5340,6 +5462,9 @@ const Scene = (() => {
     ctx.scale(1, -0.42);
     ctx.translate(0, -groundY);
     ctx.globalAlpha = 0.15;
+    // the mirror flips around groundY at 0.42: undo that scale so the
+    // lowered fighters' reflections hang from their own feet
+    ctx.translate(0, -FIG_DROP * S / 0.42);
     if (inCombat && run) {
       for (const e of run.enemies) drawEnemy(e, fx.t, run);
       if (run.boss) {
@@ -5365,6 +5490,9 @@ const Scene = (() => {
       // no strike zone during a cutscene: there is nothing to strike, and a
       // reach marker gliding along the ground breaks the travelling shot
       if (!cinemaMode) drawRange(ACT_STYLE[actId], rgUnits * unitPx * 0.97, fx.t, zoneActive);
+      // the enemies stand as low as the hero (FIG_DROP), in front of the road's edge
+      ctx.save();
+      ctx.translate(0, FIG_DROP * S);
       // the energy thread between a pair's living twins — shows they are bonded
       const pairs = {};
       for (const e of run.enemies) {
@@ -5409,7 +5537,7 @@ const Scene = (() => {
         ctx.fillRect(cx - 5 * S, ay - 1.6 * S, 10 * S, 3.2 * S); // the "+" joining them
         ctx.fillRect(cx - 1.6 * S, ay - 5 * S, 3.2 * S, 10 * S);
         // and the words, until the player has actually landed a few chords
-        if (st8.meta.stats.chords < Game.TEACH_CHORDS) {
+        if (Debug.teachAll || st8.meta.stats.chords < Game.TEACH_CHORDS) {
           ctx.font = `bold ${Math.round(13 * S)}px sans-serif`;
           ctx.textAlign = 'center';
           ctx.fillText(Game.L('ОБЕ КНОПКИ СРАЗУ', 'BOTH BUTTONS AT ONCE'), cx, ay - 16 * S);
@@ -5437,6 +5565,7 @@ const Scene = (() => {
           ctx.restore();
         }
       }
+      ctx.restore();
       if (Game.mutHas(run, 'fog')) drawFogVeil(Game.FOG_DIST);
       // the hall's stutter wears the same curtains at its own, closer edge —
       // bodies stop popping out of nowhere: the dark visibly swallows them
@@ -5477,11 +5606,19 @@ const Scene = (() => {
           }
         }
         bossVis.x = drawX;
+        ctx.save();
+        ctx.translate(0, FIG_DROP * S);
         drawBoss(b, fx.t, drawX, jumpK, spin, fx.t - bossVis.flinchT);
         drawBossPhantom(b, fx.t);
-        if (b.state === 'qte') drawQte(b, st8.meta.stats.glitchHits < Game.TEACH_GLITCH);
+        ctx.restore();
+        if (b.state === 'qte') drawQte(b, Debug.teachAll || st8.meta.stats.glitchHits < Game.TEACH_GLITCH);
       } else bossVis = null;
     } else bossVis = null;
+    // The hero stands a little in FRONT of the road's glowing edge, not on
+    // it: at groundY his near foot sat right on the line (2026-10-13).
+    // The enemies and the Warden above take the same FIG_DROP.
+    ctx.save();
+    ctx.translate(0, FIG_DROP * S);
     if (heroDeath && st8.phase === 'dead') {
       drawHeroDeath();
     } else if (st8.phase !== 'menu') { // the menu postcard stands empty
@@ -5492,6 +5629,7 @@ const Scene = (() => {
       const stasisReady = !!(se && run.stasisHits % se === se - 1);
       drawHero(run, fx.t, stunFrac, stasisReady);
     } else heroDeath = null; // back in the menu — the next run starts on his feet
+    ctx.restore();
     drawFx(dt);
     drawForeground(fx.t); // nearest plane: over the fighters and their effects
     drawBranch(fx.t);     // the summit's foreground foliage, nearest of all

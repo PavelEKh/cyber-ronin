@@ -3,11 +3,11 @@
 // instantly from cache and quietly refreshes it in the background, so an update
 // lands on the NEXT launch — no version bump ritual, no stale-forever cache.
 // (The cache name is still versioned in case the asset list itself changes.)
-const CACHE = 'cyber-ronin-v5'; // v5: ui/yandex.js joined the asset list
+const CACHE = 'cyber-ronin-v7'; // v7: ui/music.js (recorded act music) joined the asset list
 const ASSETS = [
   '.', 'index.html', 'style.css', 'game.js', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png',
-  'ui/lang.js', 'ui/core.js', 'ui/board.js', 'ui/audio.js', 'ui/sprites.js', 'ui/bgcache.js',
+  'ui/lang.js', 'ui/core.js', 'ui/board.js', 'ui/samples.js', 'ui/music.js', 'ui/audio.js', 'ui/sprites.js', 'ui/bgcache.js',
   'ui/scene.js', 'ui/debug.js', 'ui/gamepad.js', 'ui/yandex.js', 'ui/main.js',
 ];
 
